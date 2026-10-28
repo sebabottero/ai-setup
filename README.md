@@ -39,6 +39,32 @@ instructions, skills, agents and a permission policy that asks before anything h
 It is an **engine plus a generic `core/` layer**. Your own rules (language, tone, work tools, per-repo notes) go in
 extra **layers**, which can live in a separate private repo and are loaded with `--layers-dir`.
 
+## What changes compared with a stock Claude Code / OpenCode
+
+Stock tools already have permission prompts, subagents and skills. This repo adds the parts you would otherwise build and maintain by hand:
+
+| Area | Stock setup | With ai-setup |
+|---|---|---|
+| Shell safety | Per-tool permission patterns, configured separately in each tool | One `policy.json`; a guard that also judges what is inside `bash -c`, `eval` and `curl \| sh`; secrets are a hard `deny` |
+| Hard limit | Optional sandbox you configure yourself | The OS sandbox is generated from the same policy (Claude Code) |
+| Several tools | Each one has its own config format | The same rules and skills installed into Claude Code, OpenCode and Codex |
+| Ticket work | You drive each step yourself | `flow-ticket`: strong model plans, one `sub-builder` writes in its own git worktree, review, tests and checks run read-only in parallel |
+| Repeated processes | Ad-hoc prompts | Skills: `ticket-flow`, `validate`, `setup-commit`, `session-handoff`, `grillme`, `pr-review-ticket` |
+| New machine | Manual setup | `bootstrap.py` + `install.sh`: backup first, policy checked before writing, tests in CI |
+
+## Is it for you?
+
+**Yes, if you:**
+- use an AI agent on real repos and want `git push`, deletes and secret reads to need your OK;
+- switch between Claude Code, OpenCode and Codex and want the same rules in all of them;
+- work from tickets and want planning, one writer and independent review as a repeatable flow;
+- want your language, tone and company tools in private layers, not in a fork.
+
+**Probably not, if you:**
+- only run short throwaway scripts with an agent;
+- need Windows (macOS first, Linux for the guard, installer and tests);
+- expect a security boundary from the guard alone: it is a seatbelt, and the OS sandbox is the wall (see Limits).
+
 ## Install
 Requirements: macOS with Homebrew and python3 (`xcode-select --install`), or Linux with python3 and your own package manager.
 
