@@ -15,7 +15,7 @@ Usage: ./install.sh [--dry-run] [--tools claude,opencode,codex] [--home DIR]
                     [--layers-dir DIR]   (folder with more layers, e.g. a private repo; remembered in the profile)
 The chosen layers are remembered in ~/.ai-setup-profile; with no flag the last choice is repeated (first time: all).
 """
-import argparse, datetime, json, os, re, shutil, sys
+import argparse, datetime, json, os, re, shutil, subprocess, sys
 
 ROOT = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(ROOT, "core", "guard"))
@@ -221,6 +221,18 @@ def allow_unsandboxed(pol):
     return pol.get("sandbox", {}).get("allow_unsandboxed_commands") is True
 
 
+def guard_problem():
+    """None when the Claude hook answers 'ask' for a git push; otherwise why it does not. Without native Bash ask rules the
+    hook is what stops a push, so a hook that cannot run must stop the install."""
+    hook = os.path.join(ADAPTERS, "claude", "hooks", "policy_guard.py")
+    event = json.dumps({"tool_name": "Bash", "tool_input": {"command": "git push origin main"}})
+    try:
+        out = subprocess.run([sys.executable, "-I", hook], input=event, capture_output=True, text=True, timeout=20).stdout
+        return None if json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "ask" else f"{hook} did not ask for 'git push'"
+    except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
+        return f"{hook} does not run ({exc})"
+
+
 def policy(layer_names=None):
     return layerlib.compose_policy(ROOT, SELECTED if layer_names is None else layer_names)
 
@@ -316,9 +328,8 @@ def claude_lists(pol):
     sb = pol.get("sandbox", {})
     secrets = sandbox_paths(pol)
     return {
-        # a native ask rule hides the guard's risk label, so only the high-risk commands keep one (a second wall if the hook fails)
-        ("permissions", "ask"): [f"Bash({c})" for c in pol.get("ask_commands", []) if guard.risk_of("ask", c) == "high"] +
-                                ["mcp__" + t.replace(".", "__") for t in pol.get("ask_mcp_tools", []) if "*" not in t] +
+        # no native Bash ask rules: one hides the guard's risk label, so the hook is the only Bash wall (guard_problem checks it)
+        ("permissions", "ask"): ["mcp__" + t.replace(".", "__") for t in pol.get("ask_mcp_tools", []) if "*" not in t] +
                                 [f"Edit(/{p})" for p in protected_paths(pol)],  # "//" = absolute path in Claude rules
         # read-only commands and MCP tools that never need a prompt; ask and deny rules still win over these
         ("permissions", "allow"): [f"Bash({c})" for c in pol.get("allow_commands", [])] +
@@ -698,6 +709,9 @@ def main():
     print(f"ai-setup: {ROOT}\nhome: {HOME}\ntools: {', '.join(tools) or 'none found'}\nlayers: {', '.join(SELECTED)}\n")
     agents_md = build_agents_md()
     build_policy()
+    problem = guard_problem() if "claude" in tools else None
+    if problem:
+        sys.exit(f"the guard does not work, nothing was installed in the tools: {problem}")
     link_notes(SELECTED)
     for tool in tools:
         print(f"\n== {tool}")

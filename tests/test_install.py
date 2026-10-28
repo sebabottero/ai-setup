@@ -43,9 +43,7 @@ class Install(unittest.TestCase):
         self.assertNotIn("effort:", self.text(".claude", "agents", "sub-tester.md"))
         self.assertIn("sonnet", self.text(".claude", "agents", "sub-builder.md"))  # the writer runs on the balanced model
         self.assertIn(f"Edit(/{ROOT}/core/policy.json)", s["permissions"]["ask"])
-        self.assertIn("Bash(git push *)", s["permissions"]["ask"])  # high risk keeps the native rule as a second wall
-        self.assertIn("Bash(git reset --hard*)", s["permissions"]["ask"])
-        self.assertNotIn("Bash(git commit *)", s["permissions"]["ask"])  # medium risk: the guard asks, with its label
+        self.assertFalse([r for r in s["permissions"]["ask"] if r.startswith("Bash(")])  # a native rule would hide the guard's label
         box = s["sandbox"]
         self.assertTrue(box["enabled"])
         self.assertFalse(box["allowUnsandboxedCommands"])  # core never opts in: only a layer's policy can
@@ -77,6 +75,23 @@ class Install(unittest.TestCase):
     def test_second_run_changes_nothing(self):
         out = install(self.home).stdout
         self.assertNotRegex(out, r"(?m)^(write|link|backup|remove) ")
+
+
+class GuardCheck(unittest.TestCase):
+    def test_the_hook_asks_for_a_push(self):
+        sys.path.insert(0, ROOT)
+        import install
+        self.assertIsNone(install.guard_problem())
+
+    def test_a_missing_hook_is_a_problem(self):
+        sys.path.insert(0, ROOT)
+        import install
+        real = install.ADAPTERS
+        install.ADAPTERS = os.path.join(tempfile.mkdtemp(), "nowhere")
+        try:
+            self.assertIsNotNone(install.guard_problem())
+        finally:
+            install.ADAPTERS = real
 
 
 class UnsandboxedOptIn(unittest.TestCase):
