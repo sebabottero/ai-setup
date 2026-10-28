@@ -19,4 +19,4 @@ You can expect a first answer within 7 days.
 - Out of scope: the gaps already listed in `KnownGaps`, and vulnerabilities in Claude Code, OpenCode or Codex themselves.
 
 ## Supported platforms
-macOS is the supported platform. Ubuntu runs in CI as informational only.
+macOS is the supported platform. Ubuntu is the blocking CI gate; the macOS run (`ci-macos.yml`) is informational only.
