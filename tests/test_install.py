@@ -43,6 +43,9 @@ class Install(unittest.TestCase):
         self.assertNotIn("effort:", self.text(".claude", "agents", "sub-tester.md"))
         self.assertIn("sonnet", self.text(".claude", "agents", "sub-builder.md"))  # the writer runs on the balanced model
         self.assertIn(f"Edit(/{ROOT}/core/policy.json)", s["permissions"]["ask"])
+        self.assertIn("Bash(git push *)", s["permissions"]["ask"])  # high risk keeps the native rule as a second wall
+        self.assertIn("Bash(git reset --hard*)", s["permissions"]["ask"])
+        self.assertNotIn("Bash(git commit *)", s["permissions"]["ask"])  # medium risk: the guard asks, with its label
         box = s["sandbox"]
         self.assertTrue(box["enabled"])
         self.assertFalse(box["allowUnsandboxedCommands"])  # core never opts in: only a layer's policy can

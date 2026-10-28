@@ -34,6 +34,14 @@ class RiskLabels(unittest.TestCase):
     def test_a_denied_secret_is_high_risk(self):
         self.assertTrue(reason("cat " + SECRET).startswith("🔴 high risk: "))
 
+    def test_a_compound_command_shows_its_riskiest_part(self):
+        for c in ["git commit -m x && git reset --hard HEAD", "git commit -m x && git status && git push", "git -c alias.p=push p && rm -rf ~/x"]:
+            self.assertTrue(reason(c).startswith("🔴 high risk: "), c)
+        self.assertTrue(reason("git commit -m x && git tag v1").startswith("🟡 medium risk: "))
+
+    def test_the_log_rule_is_the_riskiest_one(self):
+        self.assertEqual(guard.bash("git commit -m x && git reset --hard", POLICY)[2], "git reset --hard*")
+
     def test_allowed_commands_carry_no_label(self):
         self.assertEqual(reason("git status"), "")
 

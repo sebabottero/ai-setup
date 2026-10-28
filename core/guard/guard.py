@@ -209,26 +209,31 @@ def bash(command, policy, cwd=None, depth=0):
     target = protected(command, policy, cwd)
     if target:
         return "ask", f"'{target}' is one of the setup's own rules (policy: protected_paths): confirm the change", "protected_paths"
+    found = []  # every ask the command earns; the riskiest one is shown, so 'git commit && git reset --hard' reads as high
     if depth < MAX_DEPTH:  # bash -c 'cd repo && git push': judge the inner command as if it was typed alone
         for m in INNER.finditer(command):
             result = bash(m.group(2) if m.group(1) else m.group(4), policy, cwd, depth + 1)
             if result[0] != "allow":
-                return result
+                found.append(result)
     if PIPE_TO_SHELL.search(command):
-        return "ask", "a pipe into a shell runs text nobody read: confirm", "pipe-to-shell"
+        found.append(("ask", "a pipe into a shell runs text nobody read: confirm", "pipe-to-shell"))
     if INLINE_CODE.search(command) and RUNS_COMMANDS.search(command):
-        return "ask", "inline code that starts other commands hides what runs: confirm", "inline-code"
+        found.append(("ask", "inline code that starts other commands hides what runs: confirm", "inline-code"))
     if re.search(r"\bgit\b.*\s-c\s+alias\.", command):
-        return "ask", "an inline git alias hides the real command: confirm", "git-alias"
+        found.append(("ask", "an inline git alias hides the real command: confirm", "git-alias"))
     for seg in segments(command):
         is_rm, outside = rm_outside_tmp(seg)
         if outside:
-            return "ask", f"'rm {outside}' deletes outside tmp: confirm", "rm-outside-tmp"
+            found.append(("ask", f"'rm {outside}' deletes outside tmp: confirm", "rm-outside-tmp"))
+            continue
         if is_rm or tea_read_only(seg):  # rm inside tmp, tea list/view: nothing to confirm
             continue
         for pattern in policy["ask_commands"]:
             if fnmatch.fnmatchcase(seg, pattern) or fnmatch.fnmatchcase(seg, pattern.rstrip(" *")):
-                return "ask", f"'{seg}' needs your explicit OK (policy: {pattern})", pattern
+                found.append(("ask", f"'{seg}' needs your explicit OK (policy: {pattern})", pattern))
+                break
+    if found:
+        return max(found, key=lambda r: risk_of(r[0], r[2]) == "high")  # max keeps the first of equals
     return "allow", "", "-"
 
 

@@ -316,7 +316,8 @@ def claude_lists(pol):
     sb = pol.get("sandbox", {})
     secrets = sandbox_paths(pol)
     return {
-        ("permissions", "ask"): [f"Bash({c})" for c in pol.get("ask_commands", [])] +
+        # a native ask rule hides the guard's risk label, so only the high-risk commands keep one (a second wall if the hook fails)
+        ("permissions", "ask"): [f"Bash({c})" for c in pol.get("ask_commands", []) if guard.risk_of("ask", c) == "high"] +
                                 ["mcp__" + t.replace(".", "__") for t in pol.get("ask_mcp_tools", []) if "*" not in t] +
                                 [f"Edit(/{p})" for p in protected_paths(pol)],  # "//" = absolute path in Claude rules
         # read-only commands and MCP tools that never need a prompt; ask and deny rules still win over these
