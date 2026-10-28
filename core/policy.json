@@ -83,7 +83,8 @@
       "~/.cache",
       "~/Library/Caches"
     ],
-    "unsandboxed_commands": [
+    "allow_unsandboxed_commands": false,
+  "unsandboxed_commands": [
       "git push *",
       "git fetch *",
       "git pull *"

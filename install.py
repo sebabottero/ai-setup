@@ -216,6 +216,11 @@ def skills(tool):
     return sorted(sources("skills", tool).items())
 
 
+def allow_unsandboxed(pol):
+    """True when a command that fails on the sandbox may ask to run outside it (each run still needs the user's OK)."""
+    return pol.get("sandbox", {}).get("allow_unsandboxed_commands") is True
+
+
 def policy(layer_names=None):
     return layerlib.compose_policy(ROOT, SELECTED if layer_names is None else layer_names)
 
@@ -373,9 +378,9 @@ def install_claude(agents_md):
 
     # OS sandbox for Bash, from the composed policy: the wall the regex guard cannot be
     box = settings.setdefault("sandbox", {})
-    for key, value in {"enabled": True, "failIfUnavailable": True, "allowUnsandboxedCommands": False,
-                       "autoAllowBashIfSandboxed": True}.items():
+    for key, value in {"enabled": True, "failIfUnavailable": True, "autoAllowBashIfSandboxed": True}.items():
         box.setdefault(key, value)
+    box["allowUnsandboxedCommands"] = allow_unsandboxed(pol)  # off unless a layer opts in: policy "sandbox.allow_unsandboxed_commands"
     previous = previous_managed("claude") or {}
     known = claude_lists(policy(layerlib.present(ROOT)))
     MANAGED["claude"] = {"/".join(k): v for k, v in known.items()}

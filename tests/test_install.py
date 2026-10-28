@@ -45,7 +45,7 @@ class Install(unittest.TestCase):
         self.assertIn(f"Edit(/{ROOT}/core/policy.json)", s["permissions"]["ask"])
         box = s["sandbox"]
         self.assertTrue(box["enabled"])
-        self.assertFalse(box["allowUnsandboxedCommands"])
+        self.assertFalse(box["allowUnsandboxedCommands"])  # core never opts in: only a layer's policy can
         self.assertNotIn("docker *", box["excludedCommands"])
         self.assertIn("~/**/.env.local", box["filesystem"]["denyRead"])
         self.assertIn(f"{ROOT}/core/guard/**", box["filesystem"]["denyWrite"])
@@ -74,6 +74,23 @@ class Install(unittest.TestCase):
     def test_second_run_changes_nothing(self):
         out = install(self.home).stdout
         self.assertNotRegex(out, r"(?m)^(write|link|backup|remove) ")
+
+
+class UnsandboxedOptIn(unittest.TestCase):
+    def test_off_unless_a_layer_opts_in(self):
+        sys.path.insert(0, ROOT)
+        import install
+        self.assertFalse(install.allow_unsandboxed({}))
+        self.assertFalse(install.allow_unsandboxed({"sandbox": {"allow_unsandboxed_commands": False}}))
+        self.assertFalse(install.allow_unsandboxed({"sandbox": {"allow_unsandboxed_commands": "yes"}}))
+        self.assertTrue(install.allow_unsandboxed({"sandbox": {"allow_unsandboxed_commands": True}}))
+
+    def test_layers_merge_with_or(self):
+        sys.path.insert(0, os.path.join(ROOT, "core", "guard"))
+        import layers
+        merged = layers.merge_policies([{"sandbox": {"allow_unsandboxed_commands": False}},
+                                        {"sandbox": {"allow_unsandboxed_commands": True}}])
+        self.assertTrue(merged["sandbox"]["allow_unsandboxed_commands"])
 
 
 class Collisions(unittest.TestCase):
