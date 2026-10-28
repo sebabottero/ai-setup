@@ -1,5 +1,29 @@
 # ai-setup
 
+[![CI](https://github.com/sebabottero/ai-setup/actions/workflows/ci.yml/badge.svg)](https://github.com/sebabottero/ai-setup/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+**AI coding agents can run `git push`, `rm -rf` or read your SSH keys. This makes them ask first, with the same rules in Claude Code and OpenCode.**
+
+One policy file, one guard, every tool. Design notes: [docs/DESIGN.md](docs/DESIGN.md). The guard decides `allow` / `ask` / `deny` for each shell command (real output):
+
+```console
+$ echo '{"tool":"bash","command":"git push origin main"}' | python3 core/guard/guard.py
+{"decision": "ask", "reason": "'git push origin main' needs your explicit OK (policy: git push *)"}
+$ echo '{"tool":"bash","command":"rm -rf src"}' | python3 core/guard/guard.py
+{"decision": "ask", "reason": "'rm src' deletes outside tmp: confirm"}
+$ echo '{"tool":"bash","command":"git status"}' | python3 core/guard/guard.py
+{"decision": "allow", "reason": ""}
+```
+Reading secrets (SSH and cloud credentials, `.env.local`) is a hard `deny`. All of it is covered by `tests/test_guard.py` and the rest of the suite, which runs in CI.
+
+### Why
+- **Seatbelt plus wall.** A regex over shell text can be fooled (base64, commands built inside a script). Those gaps are listed
+  openly in the tests (`KnownGaps`); the real wall is the OS sandbox Claude gets from the same policy.
+- **One writer per ticket.** `flow-ticket` plans on the strong model, a single `sub-builder` writes in its own git worktree, and
+  review, tests and checks run read-only in parallel. Nobody grades their own work.
+- **Layers, not forks.** Generic rules live in `core/`; your language, tone and company tools go in private layers loaded with `--layers-dir`.
+
 One folder that configures your AI coding agents (Claude Code, OpenCode, Codex) the same way on every machine:
 instructions, skills, agents and a permission policy that asks before anything hard to undo.
 
