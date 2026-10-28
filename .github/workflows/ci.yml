@@ -10,14 +10,15 @@ permissions:
 
 jobs:
   test:
-    # The installer targets macOS (see README: Install). Ubuntu is informational until its tests are proven green.
+    # Ubuntu is the gate: it is fast and always available. The installer targets macOS (see README: Install), so the macOS
+    # run stays as a check, but hosted macOS runners are sometimes not assigned, so it cannot block.
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest]
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
-    continue-on-error: ${{ matrix.os == 'ubuntu-latest' }}
+    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
