@@ -10,13 +10,13 @@ One policy file, one guard, every tool. Design notes: [docs/DESIGN.md](docs/DESI
 
 ```console
 $ echo '{"tool":"bash","command":"git push origin main"}' | python3 core/guard/guard.py
-{"decision": "ask", "reason": "'git push origin main' needs your explicit OK (policy: git push *)"}
+{"decision": "ask", "reason": "\ud83d\udd34 high risk: 'git push origin main' needs your explicit OK (policy: git push *)"}
 $ echo '{"tool":"bash","command":"rm -rf src"}' | python3 core/guard/guard.py
-{"decision": "ask", "reason": "'rm src' deletes outside tmp: confirm"}
+{"decision": "ask", "reason": "\ud83d\udd34 high risk: 'rm src' deletes outside tmp: confirm"}
 $ echo '{"tool":"bash","command":"git status"}' | python3 core/guard/guard.py
 {"decision": "allow", "reason": ""}
 ```
-Reading secrets (SSH and cloud credentials, `.env.local`) is a hard `deny`. All of it is covered by `tests/test_guard.py` and the rest of the suite, which runs in CI.
+Every ask starts with a risk label (`🔴 high risk` or `🟡 medium risk`; a compound command shows its highest). Reading secrets (SSH and cloud credentials, `.env.local`) is a hard `deny`. All of it is covered by `tests/test_guard.py` and the rest of the suite, which runs in CI.
 
 ### Limits (read first)
 - **macOS first.** Linux works for the guard, the installer and the tests (CI runs Ubuntu); `bootstrap.py` lists the brew packages
@@ -78,7 +78,7 @@ cd ~/Dev/ai-setup
 - `./install.sh` runs the tests, then links skills and writes instructions, agents and permissions into every tool it finds.
   Anything it replaces is copied first to `~/.ai-setup-backups/<date>/`. Run it as often as you like: with no changes it touches nothing.
 - `./bootstrap.py --check` compares this Mac with the manifests. It never stores secrets: it prints the logins you must do by hand.
-- Tested with Claude Code 2.1.310 and OpenCode 2.1.2. Codex gets instructions and skills only: the installer's output is tested in CI, but it was never run inside Codex itself.
+- Tested with Claude Code 2.1.312 and OpenCode 2.1.2. Codex gets instructions and skills only: the installer's output is tested in CI, but it was never run inside Codex itself.
 
 ## Layers
 A layer is any top-level folder with `policy.json`, `AGENTS.md`, `skills/`, `agents/` or `notes/`; no list in the code.
@@ -113,6 +113,7 @@ Reserved names: `adapters`, `docs`, `tests`, `build`. Layers only **add**: a lay
   let read-only commands run. `deny_files` / `deny_home_dirs` forbid secrets. Ask and deny always win over allow.
 - **`core/guard/guard.py`** decides allow / ask / deny for each command, for every tool. The gaps it cannot see (base64, commands
   built inside a script) are listed in `tests/test_guard.py` (`KnownGaps`). Claude also gets an OS-level sandbox from `policy.json`.
+  A command that asks to leave the sandbox is off by default (`sandbox.allow_unsandboxed_commands`); when on, each exit still asks with a `🔴 high risk` label.
 
 ## What it installs in each tool
 | | Claude Code | OpenCode | Codex |
