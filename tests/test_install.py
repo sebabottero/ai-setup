@@ -33,12 +33,14 @@ class Install(unittest.TestCase):
         s = self.load(".claude", "settings.json")
         commands = [h["command"] for groups in s["hooks"].values() for g in groups for h in g["hooks"]]
         self.assertTrue(any("policy_guard.py" in c for c in commands))
+        self.assertTrue(any("context_notice.py" in c for c in commands))
         self.assertTrue(os.path.exists(os.path.join(self.home, ".claude", "hooks", "policy_guard.py")))
         self.assertEqual(s["permissions"]["defaultMode"], "auto")
         self.assertEqual(s["model"], "opusplan")  # Opus to plan, Sonnet to execute
         self.assertIn("\neffort: high\n", self.text(".claude", "agents", "sub-review.md"))
         self.assertIn("\neffort: low\n", self.text(".claude", "agents", "leaf-verify.md"))
         self.assertNotIn("effort:", self.text(".claude", "agents", "sub-tester.md"))
+        self.assertIn("sonnet", self.text(".claude", "agents", "sub-builder.md"))  # the writer runs on the balanced model
         self.assertIn(f"Edit(/{ROOT}/core/policy.json)", s["permissions"]["ask"])
         box = s["sandbox"]
         self.assertTrue(box["enabled"])

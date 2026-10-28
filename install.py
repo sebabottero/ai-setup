@@ -357,6 +357,7 @@ def install_claude(agents_md):
     perms = settings.setdefault("permissions", {})
     perms.setdefault("defaultMode", "auto")  # a classifier reviews actions; bypass skips every check but the hook
     add_hook(settings, "PreToolUse", "Bash|mcp__.*", "policy_guard.py", 10)
+    add_hook(settings, "UserPromptSubmit", None, "context_notice.py", 5)  # informational context-size notice
 
     # OS sandbox for Bash, from the composed policy: the wall the regex guard cannot be
     box = settings.setdefault("sandbox", {})

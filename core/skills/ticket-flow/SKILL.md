@@ -55,7 +55,7 @@ Write `~/handoffs/<ticket>/plan.md` (never in the repo):
 A single message: plan summary (short and scannable) + **all** the questions together. Build nothing until the OK.
 
 ## 2 · Build
-One writer (general/build agent) in the worktree, with a brief made with the `session-handoff` skill:
+One writer, the `sub-builder` agent (balanced model; you stay on the strong one for planning and decisions), in the worktree, with a brief made with the `session-handoff` skill:
 goal, the contract's allowlist (reject what falls outside), out of scope, how to verify.
 - **Bug:** root cause first with the `systematic-debugging` skill. Then `sub-tester` writes the regression test in the worktree and confirms it **fails for the right reason**.
   Then the writer fixes until it passes.

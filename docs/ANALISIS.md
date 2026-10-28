@@ -5,7 +5,7 @@
 ## ✅ Solved by this folder
 | Gap | Solution |
 |---|---|
-| No role-based agents | 5 agents: `flow-ticket`, `sub-review`, `sub-tester`, `leaf-verify`, `meta-setup` |
+| No role-based agents | 6 agents: `flow-ticket`, `sub-review`, `sub-builder`, `sub-tester`, `leaf-verify`, `meta-setup` |
 | Orchestration by hand, stage by stage | `ticket-flow` skill + `flow-ticket` agent: one writer in its worktree, reads in parallel, 2 gates |
 | Same model for everything | Tiers per agent (`tier`), mapped per tool |
 | No secret protection | `deny_files` and `deny_home_dirs` in `policy.json`; the hook also blocks them through the shell |
@@ -51,7 +51,7 @@
 ## ✅ Resuelto por esta carpeta
 | Hueco | Solución |
 |---|---|
-| Sin agentes por rol | 5 agentes: `flow-ticket`, `sub-review`, `sub-tester`, `leaf-verify`, `meta-setup` |
+| Sin agentes por rol | 6 agentes: `flow-ticket`, `sub-review`, `sub-builder`, `sub-tester`, `leaf-verify`, `meta-setup` |
 | Orquestación a mano, etapa por etapa | Skill `ticket-flow` + agente `flow-ticket`: un solo escritor en su worktree, lecturas en paralelo, 2 puertas |
 | El mismo modelo para todo | Niveles por agente (`tier`), traducidos a cada herramienta |
 | Sin protección de secretos | `deny_files` y `deny_home_dirs` en `policy.json`; el hook también los bloquea por la shell |
