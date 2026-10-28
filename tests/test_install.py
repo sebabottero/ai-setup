@@ -66,6 +66,10 @@ class Install(unittest.TestCase):
 
     def test_codex(self):
         self.assertTrue(os.path.islink(os.path.join(self.home, ".codex", "AGENTS.md")))
+        skills = os.path.join(self.home, ".codex", "skills")
+        self.assertTrue(os.path.islink(os.path.join(skills, "ticket-flow")))  # a core skill
+        self.assertTrue(os.path.islink(os.path.join(skills, "me-skill")))  # a fixture layer's skill
+        self.assertFalse(os.path.exists(os.path.join(self.home, ".codex", "agents")))  # Codex gets no agents or guard
 
     def test_second_run_changes_nothing(self):
         out = install(self.home).stdout

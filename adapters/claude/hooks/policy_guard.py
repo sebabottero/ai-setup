@@ -24,7 +24,7 @@ def main():
         ask = {"tool": "mcp", "name": f"{server}.{name}"}
     else:
         return
-    reply(*guard.decide(ask))
+    reply(*guard.decide(ask, log=True))
 
 
 if __name__ == "__main__":

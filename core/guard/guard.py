@@ -9,7 +9,7 @@ A regex over shell text is a seatbelt, not a wall: obfuscated commands (base64, 
 script) get through. The OS sandbox (Claude: core/policy.json "sandbox") is the wall; this adds the asks the
 sandbox cannot express, like "commit needs my OK".
 """
-import fnmatch, json, os, re, shlex, sys
+import datetime, fnmatch, json, os, re, shlex, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 POLICY = os.path.join(ROOT, "build", "policy.json")  # composed by install.py from the installed layers
@@ -23,11 +23,17 @@ WRITES = re.compile(r"(?<![-=])>(?!=)|\bsed\b[^|;&]*\s-i|\btee\b|\bmv\b|\bcp\b|\
                     r"\b(python3?|node|ruby)\s+(-\S+\s+)*-[ce]\b|\bgit\s+(checkout|restore|apply|stash)\b")
 NO_OUTPUT = re.compile(r"\d*>&\d+|\d*>>?\s*/dev/(null|stderr|stdout)")  # 2>&1, >/dev/null: not a file write
 # words that may come before the real command: wrappers (sudo git push), shell keywords, and their flags
-WRAPPERS = {"sudo", "xargs", "env", "time", "nohup", "command", "exec", "nice", "timeout", "builtin", "bash", "sh", "zsh",
+WRAPPERS = {"eval", "sudo", "xargs", "env", "time", "nohup", "command", "exec", "nice", "timeout", "builtin", "bash", "sh", "zsh",
             "do", "then", "else", "elif", "if", "while", "until", "!", "{"}
 EXEC_FLAGS = {"-exec", "-execdir", "-ok", "-okdir"}  # find . -exec git push {} \;
 TMP_PREFIXES = ("/tmp/", "/private/tmp/", "/var/folders/", "$TMPDIR/", "${TMPDIR}/")
 TEA_READ_ONLY = {"list", "ls", "view"}
+# a command string inside another: bash -c '...', sh -c "...", eval "..." (judged again, up to MAX_DEPTH levels)
+INNER = re.compile(r"""\b(?:ba|z)?sh\s+(?:-[A-Za-z]+\s+)*?-[A-Za-z]*c[A-Za-z]*\s+(["'])(.*?)(?<!\\)\1|\beval\s+(["'])(.*?)(?<!\\)\3""", re.S)
+MAX_DEPTH = 3
+PIPE_TO_SHELL = re.compile(r"\|\s*(?:sudo\s+)?(?:ba|z)?sh(?:\s+-s)?\s*(?:$|[;&|)])")  # curl ... | sh: runs text nobody read
+INLINE_CODE = re.compile(r"\b(?:python3?|node|ruby|perl)\s+(?:(?:-\S+\s+)*-[ce]\b|-?\s*<<)")  # -c / -e, or a heredoc
+RUNS_COMMANDS = re.compile(r"subprocess|\bos\.(?:system|popen|exec\w*|spawn\w*)|child_process|execSync|spawnSync|\bsystem\(|\bpopen\(|\bexec\(")
 
 
 def load():
@@ -137,6 +143,23 @@ def secret(command, policy):
     return None
 
 
+def secret_after_cd(command, policy, cwd=None):
+    """cd somewhere, then a relative name: judge the name from the folder the shell would be in (cd ~ && cat .ssh/x)."""
+    cur = None
+    for part in re.split(r"&&|\|\||[;\n]", command):
+        words = words_of(part)
+        if words[:1] == ["cd"]:
+            target = os.path.expanduser(normalize(words[1]) if len(words) > 1 else "~")
+            cur = os.path.normpath(target if target.startswith("/") else os.path.join(cur or cwd or os.getcwd(), target))
+            continue
+        for word in tokens(part) if cur else ():
+            if not word.startswith(("/", "~", "-", "$")):
+                hit = secret(os.path.join(cur, word), policy)
+                if hit:
+                    return hit
+    return None
+
+
 def protected(command, policy, cwd=None):
     """A protected path (the setup's own rules) that the command looks like it writes to."""
     if not WRITES.search(NO_OUTPUT.sub("", command)):
@@ -158,41 +181,75 @@ def protected(command, policy, cwd=None):
     return None
 
 
-def bash(command, policy, cwd=None):
-    hit = secret(command, policy)
+def bash(command, policy, cwd=None, depth=0):
+    """(decision, reason, rule): rule names what decided (a policy pattern or a check), never the command."""
+    hit = secret(command, policy) or secret_after_cd(command, policy, cwd)
     if hit and hit[0] == "deny":
-        return "deny", f"'{hit[1]}' is a secret (policy: deny_files / deny_home_dirs)"
+        return "deny", f"'{hit[1]}' is a secret (policy: deny_files / deny_home_dirs)", "secret"
     if hit:
-        return "ask", f"'{hit[1]}' could expand to a secret file: confirm"
+        return "ask", f"'{hit[1]}' could expand to a secret file: confirm", "secret-glob"
     target = protected(command, policy, cwd)
     if target:
-        return "ask", f"'{target}' is one of the setup's own rules (policy: protected_paths): confirm the change"
+        return "ask", f"'{target}' is one of the setup's own rules (policy: protected_paths): confirm the change", "protected_paths"
+    if depth < MAX_DEPTH:  # bash -c 'cd repo && git push': judge the inner command as if it was typed alone
+        for m in INNER.finditer(command):
+            result = bash(m.group(2) if m.group(1) else m.group(4), policy, cwd, depth + 1)
+            if result[0] != "allow":
+                return result
+    if PIPE_TO_SHELL.search(command):
+        return "ask", "a pipe into a shell runs text nobody read: confirm", "pipe-to-shell"
+    if INLINE_CODE.search(command) and RUNS_COMMANDS.search(command):
+        return "ask", "inline code that starts other commands hides what runs: confirm", "inline-code"
     if re.search(r"\bgit\b.*\s-c\s+alias\.", command):
-        return "ask", "an inline git alias hides the real command: confirm"
+        return "ask", "an inline git alias hides the real command: confirm", "git-alias"
     for seg in segments(command):
         is_rm, outside = rm_outside_tmp(seg)
         if outside:
-            return "ask", f"'rm {outside}' deletes outside tmp: confirm"
+            return "ask", f"'rm {outside}' deletes outside tmp: confirm", "rm-outside-tmp"
         if is_rm or tea_read_only(seg):  # rm inside tmp, tea list/view: nothing to confirm
             continue
         for pattern in policy["ask_commands"]:
             if fnmatch.fnmatchcase(seg, pattern) or fnmatch.fnmatchcase(seg, pattern.rstrip(" *")):
-                return "ask", f"'{seg}' needs your explicit OK (policy: {pattern})"
-    return "allow", ""
+                return "ask", f"'{seg}' needs your explicit OK (policy: {pattern})", pattern
+    return "allow", "", "-"
 
 
-def decide(event, policy=None):
-    policy = policy or load()
+def judge(event, policy):
     if event.get("tool") == "bash":
         return bash(event.get("command", ""), policy, event.get("cwd"))
-    if event.get("tool") == "mcp" and any(fnmatch.fnmatchcase(event.get("name", ""), p) for p in policy["ask_mcp_tools"]):
-        return "ask", f"{event['name']} changes shared data: needs your explicit OK"
-    return "allow", ""
+    for pattern in policy["ask_mcp_tools"] if event.get("tool") == "mcp" else ():
+        if fnmatch.fnmatchcase(event.get("name", ""), pattern):
+            return "ask", f"{event['name']} changes shared data: needs your explicit OK", pattern
+    return "allow", "", "-"
+
+
+def log_decision(tool, decision, rule):
+    """One line per decision in AI_SETUP_GUARD_LOG (default ~/.ai-setup/guard.log; "off" disables): time, tool, decision, rule.
+    The command is never written, it may hold a secret. A log that cannot be written must not change the decision."""
+    path = os.environ.get("AI_SETUP_GUARD_LOG") or os.path.expanduser("~/.ai-setup/guard.log")
+    if path == "off":
+        return
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if os.path.exists(path) and os.path.getsize(path) > 1_000_000:  # keep one previous file, not an endless log
+            os.replace(path, path + ".1")
+        with open(path, "a") as f:
+            f.write("\t".join([datetime.datetime.now().isoformat(timespec="seconds"), tool, decision, rule]) + "\n")
+    except OSError:
+        pass
+
+
+def decide(event, policy=None, log=False):
+    """(decision, reason). log=True is for the adapters that answer a real agent; tests and callers stay quiet."""
+    decision, reason, rule = judge(event, policy or load())
+    if log:
+        log_decision(event.get("tool", "?"), decision, rule)
+    return decision, reason
 
 
 def main():
     try:
-        decision, reason = decide(json.load(sys.stdin))
+        decision, reason = decide(json.load(sys.stdin), log=True)
     except Exception as exc:  # a broken guard must not silently allow: ask instead
         decision, reason = "ask", f"policy guard failed ({exc}); confirm manually"
     print(json.dumps({"decision": decision, "reason": reason}))

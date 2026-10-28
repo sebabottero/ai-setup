@@ -24,6 +24,20 @@ class Base(unittest.TestCase):
         return path
 
 
+class GuardReport(unittest.TestCase):
+    def test_summary_counts_decisions_and_top_rules(self):
+        path = os.path.join(tempfile.mkdtemp(), "guard.log")
+        with open(path, "w") as f:
+            f.write("2026-10-28T10:00:00\tbash\task\tgit push *\n2026-10-28T10:01:00\tbash\task\tgit push *\n"
+                    "2026-10-28T10:02:00\tbash\tdeny\tsecret\n2026-10-28T10:03:00\tbash\tallow\t-\nnot a log line\n")
+        s = usage_report.guard_summary(path)
+        self.assertEqual((s["ask"], s["deny"], s["allow"]), (2, 1, 1))
+        self.assertEqual(s["rules"].most_common(1), [("git push *", 2)])
+
+    def test_missing_log_is_none(self):
+        self.assertIsNone(usage_report.guard_summary(os.path.join(tempfile.mkdtemp(), "nope.log")))
+
+
 class ContextNotice(Base):
     def notice(self, path, session="s1"):
         return context_notice.notice(path, session, self.dir)

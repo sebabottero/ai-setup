@@ -3,7 +3,8 @@
 
 Each layer lists what it needs in <layer>/bootstrap.json (brew, steps, path, logins, manual). Only the chosen layers
 are installed, so `--only core` skips the toolchain of any other layer. Safe to repeat: what is there is skipped.
-Needs Homebrew first (https://brew.sh) and python3 (xcode-select --install). Secrets are never stored: logins are a checklist.
+Needs Homebrew first (https://brew.sh) and python3 (xcode-select --install). On Linux it skips brew and lists the packages
+for your own package manager (apt, dnf...); the curl/npm steps and ./install.sh still run. Secrets are never stored: logins are a checklist.
 Usage: ./bootstrap.py [--dry-run | --check] [--only core | --with <layer>] [--layers-dir DIR]
   --dry-run  show what would be installed, change nothing
   --check    compare this Mac with the manifests (also lists brew leaves nobody registered); exit 1 if something is missing
@@ -16,6 +17,11 @@ import layers as layerlib
 
 MARK = "# ai-setup bootstrap"
 BREW = next((p for p in ("/opt/homebrew/bin/brew", "/usr/local/bin/brew") if os.path.exists(p)), shutil.which("brew"))
+if os.environ.get("AI_SETUP_BREW") == "none":
+    BREW = None
+# Linux, or AI_SETUP_BREW=none: no Homebrew on purpose. The brew packages are listed for your package manager; steps still run.
+NO_BREW = BREW is None and (os.environ.get("AI_SETUP_BREW") == "none" or sys.platform != "darwin")
+PROFILE = ".zprofile" if sys.platform == "darwin" or os.environ.get("SHELL", "").endswith("zsh") else ".profile"
 
 
 def sh(cmd, **kw):
@@ -78,7 +84,7 @@ def path_block(entries):
 
 def path_missing(entries, home):
     try:
-        with open(os.path.join(home, ".zprofile")) as f:
+        with open(os.path.join(home, PROFILE)) as f:
             text = f.read()
     except OSError:
         text = ""
@@ -88,13 +94,14 @@ def path_missing(entries, home):
 def report(manifest_, home):
     """[(label, ok)] for every item of the manifest, without changing anything."""
     rows = []
-    if not BREW:
+    if not BREW and not NO_BREW:
         rows.append(("Homebrew (https://brew.sh)", False))
     have, taps = brew_installed(), brew_taps()
-    rows += [(f"brew tap {t}", t in taps) for t in manifest_["taps"]]
-    rows += [(f"brew {f}", short(f) in have) for f in manifest_["formulas"]]
+    if not NO_BREW:
+        rows += [(f"brew tap {t}", t in taps) for t in manifest_["taps"]]
+        rows += [(f"brew {f}", short(f) in have) for f in manifest_["formulas"]]
     rows += [(s["name"], sh(s["check"], env={**os.environ, "HOME": home}).returncode == 0) for s in manifest_["steps"]]
-    rows += [(f"PATH en ~/.zprofile: {e}", e not in path_missing([e], home)) for e in manifest_["path"]]
+    rows += [(f"PATH in ~/{PROFILE}: {e}", e not in path_missing([e], home)) for e in manifest_["path"]]
     return rows
 
 
@@ -146,7 +153,10 @@ def main():
         warn_versions(m)
         sys.exit(0 if all(ok for _, ok in rows) else 1)
 
-    if not BREW:
+    if NO_BREW:
+        names = ", ".join(sorted({short(f) for f in m["formulas"]}))
+        print(f"· No Homebrew here: install these with your package manager (apt, dnf...): {names}")
+    elif not BREW:
         print("✗ Homebrew is missing. Install it from https://brew.sh and run ./bootstrap.py again")
         if not args.dry_run:
             sys.exit(1)
@@ -165,9 +175,9 @@ def main():
             failed |= not run_step(s["name"], s["run"], args.dry_run)
     missing = path_missing(m["path"], home)
     if missing:
-        print(f"  → add to PATH in ~/.zprofile: {', '.join(missing)}")
+        print(f"  → add to PATH in ~/{PROFILE}: {', '.join(missing)}")
         if not args.dry_run:
-            with open(os.path.join(home, ".zprofile"), "a") as f:
+            with open(os.path.join(home, PROFILE), "a") as f:
                 f.write("\n" + path_block(missing) + "\n")
     if failed:
         sys.exit("Something failed above: fix it and run ./bootstrap.py again (what is already installed is skipped).")

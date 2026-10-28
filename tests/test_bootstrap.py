@@ -37,6 +37,17 @@ class DryRun(unittest.TestCase):
             self.assertIn("Work SDK 1.2.3", full.stdout)
             self.assertIn("tea login add", full.stdout)
 
+    def test_without_homebrew_it_lists_packages_and_keeps_going(self):
+        """Linux (or AI_SETUP_BREW=none): no brew rows, the packages are listed for your package manager, the steps still run."""
+        with tempfile.TemporaryDirectory() as home:
+            r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "bootstrap.py"), "--dry-run", "--home", home, "--only", "core"],
+                               capture_output=True, text=True, env={**os.environ, "AI_SETUP_BREW": "none"})
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertNotIn("Homebrew is missing", r.stdout)
+            self.assertIn("package manager", r.stdout)
+            self.assertIn("node@22", r.stdout)  # a core formula, now listed for the user's package manager
+            self.assertIn("Claude Code (native installer)", r.stdout)
+
     def test_unknown_layer_stops(self):
         with tempfile.TemporaryDirectory() as home:
             self.assertNotEqual(bootstrap(home, "--only", "nope").returncode, 0)
