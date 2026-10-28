@@ -1,0 +1,93 @@
+{
+  "_comment": "Core layer: generic permissions. install.py composes the installed layers into build/policy.json. 'ask' = needs OK; 'allow' = no prompt (read-only); 'deny' = forbidden. A layer only adds.",
+  "ask_commands": [
+    "git commit *",
+    "git push *",
+    "git tag *",
+    "git merge *",
+    "git reset --hard*",
+    "git clean *",
+    "git rebase *",
+    "git restore *",
+    "git checkout -- *",
+    "git branch -D *",
+    "git stash drop*",
+    "git stash clear*",
+    "git worktree remove*",
+    "git push --force*",
+    "git push -f*",
+    "rm -rf *",
+    "rm -fr *",
+    "git commit-tree*",
+    "git update-ref*",
+    "gh pr create*",
+    "gh pr merge*",
+    "gh release create*",
+    "gh pr edit*",
+    "gh pr comment*",
+    "gh pr review*",
+    "gh pr close*",
+    "gh issue create*",
+    "gh issue edit*",
+    "gh issue comment*",
+    "gh issue close*",
+    "git diff *--output*",
+    "git log *--output*",
+    "rg *--pre*"
+  ],
+  "allow_commands": [
+    "ls", "ls *", "pwd",
+    "git status", "git status *", "git diff", "git diff *", "git log", "git log *",
+    "cat *", "head *", "tail *", "wc *", "file *", "stat *", "grep *", "rg *", "diff *", "jq *",
+    "which *", "basename *", "dirname *",
+    "git show *", "git blame *", "git remote -v", "git rev-parse *", "git ls-files*", "git branch --list*",
+    "git worktree list*",
+    "gh pr view*", "gh pr list*", "gh pr diff*", "gh pr checks*", "gh issue view*", "gh issue list*",
+    "gh run view*", "gh run list*"
+  ],
+  "deny_files": [
+    ".env.local",
+    "*.env.local"
+  ],
+  "deny_home_dirs": [
+    "~/.ssh",
+    "~/.aws"
+  ],
+  "protected_paths": [
+    "{{AI_SETUP}}/core/policy.json",
+    "{{AI_SETUP}}/*/policy.json",
+    "{{AI_SETUP}}/core/guard/*",
+    "{{AI_SETUP}}/adapters/*/hooks/*",
+    "{{AI_SETUP}}/adapters/*/plugins/*",
+    "{{AI_SETUP}}/build/*",
+    "{{AI_SETUP}}/install.py",
+    "{{AI_SETUP}}/install.sh",
+    "{{AI_SETUP}}/tests/*",
+    "~/.config/opencode/opencode.json",
+    "~/.config/opencode/plugins/*"
+  ],
+  "ask_mcp_tools": [],
+  "sandbox": {
+    "_comment": "Operating-system wall for Bash in Claude. The secrets in deny_files/deny_home_dirs and protected_paths are blocked here too. A missing host: Claude asks the first time.",
+    "allowed_domains": [
+      "github.com",
+      "*.github.com",
+      "*.githubusercontent.com",
+      "registry.npmjs.org",
+      "*.npmjs.org",
+      "pypi.org",
+      "files.pythonhosted.org"
+    ],
+    "allow_write": [
+      "~/.npm",
+      "~/.cache",
+      "~/Library/Caches"
+    ],
+    "unsandboxed_commands": [
+      "git push *",
+      "git fetch *",
+      "git pull *"
+    ]
+  },
+  "_ask_mcp_tools": "Accepts globs (fnmatch) on 'server.tool': each layer adds its own."
+}

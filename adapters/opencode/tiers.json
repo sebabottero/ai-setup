@@ -1,0 +1,8 @@
+{
+  "_comment": "Model per tier for the agents in OpenCode, provider/model format (e.g. anthropic/claude-sonnet-5-5). Empty = the agent uses the session's model.",
+  "strong": "",
+  "balanced": "",
+  "fast": "",
+  "_comment_overrides": "Optional experiment from the PDF (orchestrate with a balanced model): {\"flow-ticket\": \"balanced\"}. Empty = each agent uses its tier. Compare 2-3 tickets before keeping it.",
+  "overrides": {}
+}

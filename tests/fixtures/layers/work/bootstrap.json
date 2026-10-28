@@ -1,0 +1,22 @@
+{
+  "_comment": "Test fixture: what a work layer needs on a clean Mac.",
+  "brew": {
+    "formulas": [
+      "tea"
+    ]
+  },
+  "steps": [
+    {
+      "name": "Work SDK 1.2.3",
+      "check": "test -x \"$HOME/.work-sdk/bin/sdk\"",
+      "run": "echo install work sdk"
+    }
+  ],
+  "path": [
+    "$HOME/.work-sdk/bin"
+  ],
+  "logins": [
+    "tea login add   (your Gitea token; do not store it in the repo)"
+  ],
+  "manual": []
+}

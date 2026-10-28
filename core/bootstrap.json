@@ -1,0 +1,33 @@
+{
+  "_comment": "What bootstrap.py installs for this layer. brew: taps and formulas. steps: check (0 = already there) and run. expect: tested version; brew cannot install an old one, it only warns if it changed. logins and manual: final checklist, secrets are never stored.",
+  "brew": {
+    "taps": ["anomalyco/tap"],
+    "formulas": ["git", "gh", "node@22", "python@3.12", "uv", "anomalyco/tap/opencode-v2"]
+  },
+  "expect": {
+    "opencode-v2": "2.1.2"
+  },
+  "steps": [
+    {
+      "name": "Claude Code (native installer)",
+      "check": "command -v claude >/dev/null || test -x \"$HOME/.local/bin/claude\"",
+      "run": "curl -fsSL https://claude.ai/install.sh | bash"
+    },
+    {
+      "name": "typescript-language-server (Claude LSP plugin)",
+      "check": "command -v typescript-language-server >/dev/null",
+      "run": "npm install -g typescript-language-server typescript"
+    }
+  ],
+  "path": ["$HOME/.local/bin"],
+  "logins": [
+    "claude   (open Claude Code and log in)",
+    "opencode auth login",
+    "gh auth login   (HTTPS; then gh auth setup-git so git uses that login: it works for cloning and pushing ai-setup)",
+    "ssh-keygen -t ed25519   and add the public key to your git remote"
+  ],
+  "manual": [
+    "Install Orca from its website, open it and check that ~/.agents/skills has orca-cli and orchestration",
+    "Reconnect the per-project MCP servers: claude mcp add … and /mcp (restart the session afterwards)"
+  ]
+}

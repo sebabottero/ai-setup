@@ -1,0 +1,19 @@
+{
+  "_comment": "Defaults that install.py writes to ~/.claude/settings.json only if the key does not exist. Permissions, hooks and sandbox come from core/policy.json. The LSP plugins need their binaries (see README, Install).",
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "theme": "dark-ansi",
+  "model": "opusplan",
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "medium"
+    }
+  },
+  "enabledPlugins": {
+    "csharp-lsp@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true
+  }
+}

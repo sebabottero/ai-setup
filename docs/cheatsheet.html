@@ -1,0 +1,629 @@
+<title>ai-setup Cheatsheet</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: una pantalla por bloque (Agentes · Skills · Tareas · Permisos · Comandos), colores = roles de agente, plantillas copiables */
+:root{
+  --bg:#f4f6fa; --surface:#ffffff; --surface-2:#eceff5; --line:#d8dde8;
+  --fg:#17202e; --muted:#5a6477;
+  --flow:#7a4fd6; --flow-bg:#f0eaff;
+  --sub:#b98100;  --sub-bg:#fff4d6;
+  --test:#2f6fe4; --test-bg:#e6efff;
+  --leaf:#1c9a5b; --leaf-bg:#e3f6ec;
+  --docs:#127f93; --docs-bg:#e0f5f8;
+  --meta:#c4621c; --meta-bg:#fdeee2;
+  --risk:#d23c3c; --risk-bg:#fde8e8;
+  --code-bg:#1b2231; --code-fg:#e5eaf4;
+  --f-display:"Bricolage Grotesque","Avenir Next","Segoe UI",system-ui,sans-serif;
+  --f-body:"Atkinson Hyperlegible","Segoe UI",system-ui,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  --r:14px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f141d; --surface:#171e2a; --surface-2:#1f2836; --line:#2d3748;
+  --fg:#e8edf6; --muted:#9aa5b8;
+  --flow:#b393ff; --flow-bg:#271e45;
+  --sub:#f2c14e;  --sub-bg:#392d0e;
+  --test:#76a5ff; --test-bg:#18264a;
+  --leaf:#52d293; --leaf-bg:#123325;
+  --docs:#4fd0e3; --docs-bg:#0f2f36;
+  --meta:#ff9d5c; --meta-bg:#3b2414;
+  --risk:#ff7b7b; --risk-bg:#3d1a1d;
+  --code-bg:#0a0e15; --code-fg:#dfe6f3;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f141d; --surface:#171e2a; --surface-2:#1f2836; --line:#2d3748;
+  --fg:#e8edf6; --muted:#9aa5b8;
+  --flow:#b393ff; --flow-bg:#271e45;
+  --sub:#f2c14e;  --sub-bg:#392d0e;
+  --test:#76a5ff; --test-bg:#18264a;
+  --leaf:#52d293; --leaf-bg:#123325;
+  --docs:#4fd0e3; --docs-bg:#0f2f36;
+  --meta:#ff9d5c; --meta-bg:#3b2414;
+  --risk:#ff7b7b; --risk-bg:#3d1a1d;
+  --code-bg:#0a0e15; --code-fg:#dfe6f3;
+  color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:16.5px;line-height:1.55}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--surface)}
+.wrap{max-width:1100px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+h1,h2,h3,h4{font-family:var(--f-display);text-wrap:balance;line-height:1.15;margin:0}
+h1{font-size:clamp(2rem,5.5vw,3.2rem);font-weight:800;letter-spacing:-.02em}
+h2{font-size:clamp(1.45rem,3.2vw,2rem);font-weight:800}
+h3{font-size:1.12rem;font-weight:600}
+h4{font-size:1rem;font-weight:600}
+p{margin:0}
+code{font-family:var(--f-mono);font-size:.85em;background:var(--surface-2);padding:.08em .35em;border-radius:5px}
+:focus-visible{outline:3px solid var(--test);outline-offset:2px;border-radius:6px}
+.muted{color:var(--muted)}
+.label{font-family:var(--f-mono);font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+
+/* nav */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:9;background:var(--surface);border-bottom:1px solid var(--line)}
+.top .wrap{display:flex;gap:12px;align-items:center;padding-block:10px;flex-wrap:wrap}
+.brand{font-family:var(--f-display);font-weight:800}
+.nav{display:flex;gap:6px;flex-wrap:wrap}
+.nav a{font-size:.82rem;font-weight:700;text-decoration:none;color:var(--fg);padding:5px 11px;border-radius:999px;background:var(--surface-2);border:1px solid var(--line)}
+.nav a:hover{border-color:var(--flow)}
+
+/* hero */
+.hero{padding-block:36px 10px;display:grid;gap:18px}
+.lede{font-size:1.1rem;color:var(--muted);max-width:62ch}
+.lede b{color:var(--fg)}
+.loop{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.loop .st{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;display:grid;gap:4px}
+.loop .k{font-family:var(--f-mono);font-weight:600;font-size:.95rem}
+.loop .n{font-family:var(--f-display);font-weight:800;font-size:1.6rem;color:var(--flow);line-height:1}
+@media (max-width:640px){.loop{grid-template-columns:1fr}}
+
+/* sections */
+section.blk{margin-top:52px;display:grid;gap:16px;scroll-margin-top:70px}
+.bh{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;border-bottom:3px solid var(--fg);padding-bottom:8px}
+.bh p{color:var(--muted)}
+.grid{display:grid;gap:12px}
+.g2{grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))}
+.g3{grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))}
+.box{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:grid;gap:8px;align-content:start;min-width:0}
+.box ul,.box ol{margin:0;padding-left:1.15em;display:grid;gap:3px}
+.tip{display:flex;gap:12px;align-items:flex-start;background:var(--sub-bg);border-radius:var(--r);padding:12px 16px}
+.tip b.t{font-family:var(--f-mono);font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--sub);white-space:nowrap;padding-top:3px}
+
+/* agent cards */
+.agents{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr));gap:12px}
+.ag{border-radius:var(--r);border:2px solid var(--c);background:var(--surface);overflow:hidden;display:grid;align-content:start;min-width:0}
+.ag .h{background:var(--cb);padding:12px 14px;display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
+.ag .h b{font-family:var(--f-mono);color:var(--c);font-size:1rem}
+.ag .h span{font-size:.78rem;font-weight:700;color:var(--c)}
+.ag .b{padding:12px 14px;display:grid;gap:6px;font-size:.93rem}
+.ag dl{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;margin:0;font-size:.86rem}
+.ag dt{color:var(--muted)}
+.ag dd{margin:0}
+.c-flow{--c:var(--flow);--cb:var(--flow-bg)}
+.c-sub{--c:var(--sub);--cb:var(--sub-bg)}
+.c-test{--c:var(--test);--cb:var(--test-bg)}
+.c-leaf{--c:var(--leaf);--cb:var(--leaf-bg)}
+.c-docs{--c:var(--docs);--cb:var(--docs-bg)}
+.c-meta{--c:var(--meta);--cb:var(--meta-bg)}
+.c-risk{--c:var(--risk);--cb:var(--risk-bg)}
+
+.prefix{display:flex;flex-wrap:wrap;gap:8px}
+.prefix span{font-size:.88rem;padding:6px 11px;border-radius:10px;background:var(--cb);color:var(--fg);border:1px solid var(--c)}
+.prefix span b{font-family:var(--f-mono);color:var(--c)}
+
+/* tables */
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:.92rem}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--f-mono);font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--surface-2)}
+tr:last-child td{border-bottom:0}
+
+/* code */
+.code{position:relative;min-width:0}
+.code pre{margin:0;padding:14px 16px;padding-right:76px;font-family:var(--f-mono);font-size:.8rem;line-height:1.55;background:var(--code-bg);color:var(--code-fg);border-radius:12px;overflow-x:auto;white-space:pre}
+.code .cap{font-family:var(--f-mono);font-size:.72rem;color:var(--muted);margin-bottom:4px;display:block}
+.copy{position:absolute;right:8px;bottom:8px;font-family:var(--f-mono);font-size:.72rem;font-weight:600;border:0;border-radius:6px;padding:5px 10px;background:var(--surface);color:var(--fg);cursor:pointer}
+.cm{color:#8b97ad}
+
+/* decision */
+.decide{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:10px}
+.dq{border-radius:12px;padding:12px 14px;background:var(--cb);border:1px solid var(--c);display:grid;gap:4px}
+.dq .q{font-size:.9rem}
+.dq .a{font-family:var(--f-mono);font-weight:600;color:var(--c)}
+
+/* steps */
+.steps{counter-reset:s;list-style:none;margin:0;padding:0;display:grid;gap:8px}
+.steps li{counter-increment:s;display:flex;gap:12px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0}
+.steps li>div{min-width:0}
+.steps li::before{content:counter(s);flex:none;width:26px;height:26px;border-radius:7px;display:grid;place-items:center;font-family:var(--f-display);font-weight:800;font-size:.9rem;background:var(--c,var(--flow));color:var(--surface)}
+
+/* task types */
+.tasks{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr));gap:12px}
+.task{border-radius:var(--r);border:2px solid var(--c);background:var(--surface);overflow:hidden;display:grid;align-content:start;min-width:0}
+.task .h{background:var(--cb);padding:12px 14px;display:grid;gap:2px}
+.task .h b{font-family:var(--f-display);font-size:1.2rem;color:var(--c)}
+.task .h span{font-weight:700;font-size:.92rem}
+.task ol{margin:0;padding:12px 14px 14px 2.1em;display:grid;gap:4px;font-size:.93rem}
+
+/* pipeline */
+.pipe-wrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;overflow-x:auto}
+.pipe{display:flex;align-items:stretch;gap:8px;min-width:820px}
+.stage{flex:1;display:grid;gap:6px;align-content:start}
+.stage .t{font-family:var(--f-mono);font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.chip{font-size:.82rem;font-weight:700;padding:6px 9px;border-radius:8px;background:var(--cb);color:var(--c);border:1.5px solid var(--c);text-align:center}
+.chip.gate{background:var(--risk);color:var(--surface);border-color:var(--risk)}
+.par{font-family:var(--f-mono);font-size:.68rem;color:var(--muted);text-align:center}
+.arrow{align-self:center;color:var(--muted);font-weight:800}
+
+/* traffic */
+.traffic{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.light{border-radius:var(--r);padding:14px;display:grid;gap:6px;background:var(--cb);border:2px solid var(--c)}
+.light b{font-family:var(--f-mono);font-size:1.15rem;color:var(--c)}
+.light ul{margin:0;padding-left:1.1em;font-size:.88rem;display:grid;gap:2px}
+@media (max-width:640px){.traffic{grid-template-columns:1fr}}
+
+/* commands */
+.cmds{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:10px}
+.cmd{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:grid;gap:4px;min-width:0}
+.cmd code{display:block;background:transparent;padding:0;font-size:.84rem;white-space:pre-wrap;word-break:break-word;color:var(--fg)}
+.cmd span{font-size:.85rem;color:var(--muted)}
+
+footer{margin-top:56px;padding-block:24px 48px;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+.cmd code span{font-size:inherit;color:inherit}
+
+/* idioma: cada texto existe en es y en; se ve solo el elegido */
+:root:not([data-lang="en"]) [data-l="en"],:root[data-lang="en"] [data-l="es"]{display:none!important}
+.lang{margin-left:auto;display:flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;background:var(--surface-2)}
+.lang button{font-family:var(--f-mono);font-size:.78rem;font-weight:600;border:0;background:transparent;color:var(--muted);padding:5px 12px;cursor:pointer}
+.lang button[aria-pressed="true"]{background:var(--fg);color:var(--surface)}
+</style>
+
+<header class="top">
+  <div class="wrap">
+    <span class="brand">ai-setup</span>
+    <nav class="nav" aria-label="Secciones">
+      <a href="#instalar"><span data-l="es">Instalar</span><span data-l="en">Install</span></a>
+      <a href="#agentes"><span data-l="es">Agentes</span><span data-l="en">Agents</span></a>
+      <a href="#skills">Skills</a>
+      <a href="#capas"><span data-l="es">Capas</span><span data-l="en">Layers</span></a>
+      <a href="#donde"><span data-l="es">Dónde va cada cosa</span><span data-l="en">Where things go</span></a>
+      <a href="#tareas"><span data-l="es">Encarar tareas</span><span data-l="en">Tackling tasks</span></a>
+      <a href="#permisos"><span data-l="es">Permisos</span><span data-l="en">Permissions</span></a>
+      <a href="#comandos"><span data-l="es">Comandos</span><span data-l="en">Commands</span></a>
+    </nav>
+    <div class="lang" role="group" aria-label="Idioma / Language">
+      <button type="button" data-set="es" aria-pressed="true">ES</button>
+      <button type="button" data-set="en" aria-pressed="false">EN</button>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+<section class="hero">
+  <span class="label">~/Dev/ai-setup · Claude Code · OpenCode · Codex</span>
+  <h1><span data-l="es">Tu equipo de agentes, en una carpeta</span><span data-l="en">Your agent team, in one folder</span></h1>
+  <p class="lede" data-l="es">Escribes las reglas, los agentes y las skills <b>una sola vez</b>, en capas: <code>core/</code> (genérico, viene en el repo) y las tuyas, opcionales, que puedes guardar en otro repo y cargar con <code>--layers-dir</code>. El instalador compone las que elijas y las traduce a cada herramienta que abras desde Orca. <code>core/</code> no contiene nada de ningún repo, empresa ni persona.</p>
+  <p class="lede" data-l="en">You write rules, agents and skills <b>once</b>, in layers: <code>core/</code> (generic, ships in the repo) and your own optional ones, which you can keep in another repo and load with <code>--layers-dir</code>. The installer composes the ones you pick and translates them for every tool you open from Orca. <code>core/</code> holds nothing from any repo, company or person.</p>
+  <div class="loop">
+    <div class="st"><span class="n">1</span><span class="k"><span data-l="es">edita una capa o adapters/</span><span data-l="en">edit a layer or adapters/</span></span><span class="muted"><span data-l="es"><code>core/</code> es lo genérico, <code>&lt;tuya&gt;/</code> lo tuyo; <code>adapters/&lt;herramienta&gt;/</code>, lo que hace ir mejor a cada herramienta.</span><span data-l="en"><code>core/</code> is the generic part, <code>&lt;yours&gt;/</code> is yours; <code>adapters/&lt;tool&gt;/</code> makes each tool work best.</span></span></div>
+    <div class="st"><span class="n">2</span><span class="k">./install.sh</span><span class="muted"><span data-l="es">Corre los tests y lo instala en todas tus herramientas, con las capas que elijas (sin flags, todas). Puedes repetirlo sin riesgo. Ver Instalar.</span><span data-l="en">Runs the tests, then installs it in all your tools, with the layers you pick (no flags: all). Safe to run again. See Install.</span></span></div>
+    <div class="st"><span class="n">3</span><span class="k">./backup.sh</span><span class="muted"><span data-l="es">Copia offline opcional: zip en Downloads. El backup principal es <code>git push</code> al repo privado.</span><span data-l="en">Optional offline copy: zip in Downloads. The main backup is <code>git push</code> to the private repo.</span></span></div>
+  </div>
+</section>
+
+<!-- ================= INSTALAR ================= -->
+<section class="blk" id="instalar">
+  <div class="bh"><h2><span data-l="es">Instalar</span><span data-l="en">Install</span></h2><p><span data-l="es">Un solo comando. Lo único que eliges es qué capas lleva esta máquina.</span><span data-l="en">One command. The only choice is which layers this machine gets.</span></p></div>
+  <div class="loop">
+    <div class="st"><span class="n">1</span><span class="k"><span data-l="es">elige las capas</span><span data-l="en">pick the layers</span></span><span class="muted"><span data-l="es">Busca tu caso en la primera tabla. Si dudas, el comando sin flags instala todo.</span><span data-l="en">Find your case in the first table. If unsure, the command with no flags installs everything.</span></span></div>
+    <div class="st"><span class="n">2</span><span class="k">./install.sh --dry-run</span><span class="muted"><span data-l="es">Opcional: muestra qué cambiaría, sin tocar nada.</span><span data-l="en">Optional: shows what would change, touching nothing.</span></span></div>
+    <div class="st"><span class="n">3</span><span class="k">./install.sh</span><span class="muted"><span data-l="es">Corre los tests, instala y recuerda tu elección. Después abre una sesión nueva.</span><span data-l="en">Runs the tests, installs and remembers your choice. Then open a new session.</span></span></div>
+  </div>
+
+  <h3><span data-l="es">¿Qué máquina es?</span><span data-l="en">Which machine is it?</span></h3>
+  <div class="tbl"><table>
+    <thead><tr><th><span data-l="es">Caso</span><span data-l="en">Case</span></th><th><span data-l="es">Comando</span><span data-l="en">Command</span></th><th><span data-l="es">Capas que instala</span><span data-l="en">Layers installed</span></th></tr></thead>
+    <tbody>
+      <tr><td><span data-l="es">Todo lo que tengo</span><span data-l="en">Everything I have</span></td><td><code>./install.sh</code></td><td><span data-l="es">core + tus capas guardadas en el perfil. La primera vez, solo core.</span><span data-l="en">core + the layers saved in your profile. The first run installs core only.</span></td></tr>
+      <tr><td><span data-l="es">Solo lo genérico</span><span data-l="en">Only the generic part</span></td><td><code>./install.sh --only core</code></td><td><span data-l="es">Solo core: genérico, sin nada tuyo</span><span data-l="en">Only core: generic, nothing of yours</span></td></tr>
+      <tr><td><span data-l="es">Core + una capa mía</span><span data-l="en">Core + one of my layers</span></td><td><code>./install.sh --layers-dir ~/Dev/ai-setup-private --only core,&lt;layer&gt;</code></td><td><span data-l="es">core + esa capa</span><span data-l="en">core + that layer</span></td></tr>
+      <tr><td><span data-l="es">Compartir o probar en otra máquina</span><span data-l="en">Share or try on another machine</span></td><td><code>./install.sh --only core</code></td><td><span data-l="es">Solo core: genérico, sin nada tuyo</span><span data-l="en">Only core: generic, nothing of yours</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <p class="muted"><span data-l="es"><code>core</code> siempre se instala. Para ver qué tiene esta máquina: <code>cat ~/.ai-setup-profile</code>.</span><span data-l="en"><code>core</code> is always installed. To see what this machine has: <code>cat ~/.ai-setup-profile</code>.</span></p>
+
+  <h3><span data-l="es">Cambiar después</span><span data-l="en">Change later</span></h3>
+  <div class="tbl"><table>
+    <thead><tr><th><span data-l="es">Quiero…</span><span data-l="en">I want…</span></th><th><span data-l="es">Comando</span><span data-l="en">Command</span></th><th><span data-l="es">Ojo</span><span data-l="en">Careful</span></th></tr></thead>
+    <tbody>
+      <tr><td><span data-l="es">Añadir una capa</span><span data-l="en">Add a layer</span></td><td><code>./install.sh --with &lt;layer&gt;</code></td><td><span data-l="es">Se suma a lo que ya tienes. Si nunca instalaste, instala todo: usa <code>--only</code>.</span><span data-l="en">Added to what you have. If you never installed, it installs everything: use <code>--only</code>.</span></td></tr>
+      <tr><td><span data-l="es">Usar una capa que acabo de crear</span><span data-l="en">Use a layer I just created</span></td><td><code>./install.sh --with php</code></td><td><span data-l="es">Nunca se instala sola. Cómo crearla: sección <a href="#capas">Capas</a>.</span><span data-l="en">Never installed on its own. How to create it: <a href="#capas">Layers</a> section.</span></td></tr>
+      <tr><td><span data-l="es">Cargar capas de otra carpeta o repo</span><span data-l="en">Load layers from another folder or repo</span></td><td><code>./install.sh --layers-dir DIR --with &lt;layer&gt;</code></td><td><span data-l="es">Repetible. Se recuerda en <code>~/.ai-setup-profile</code>; <code>core</code> siempre sale del repo.</span><span data-l="en">Repeatable. Remembered in <code>~/.ai-setup-profile</code>; <code>core</code> always comes from the repo.</span></td></tr>
+      <tr><td><span data-l="es">Quitar una capa</span><span data-l="en">Remove a layer</span></td><td><code>./install.sh --uninstall &lt;layer&gt;</code></td><td><span data-l="es">Quita sus skills, agentes, notas y reglas, con backup. Core no se quita.</span><span data-l="en">Removes its skills, agents, notes and rules, with backup. Core stays.</span></td></tr>
+      <tr><td><span data-l="es">Repetir lo último</span><span data-l="en">Repeat the last choice</span></td><td><code>./install.sh</code></td><td><span data-l="es">Usa el perfil guardado. Sin cambios, no toca nada.</span><span data-l="en">Uses the saved profile. If nothing changed, it touches nothing.</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="tip"><b class="t"><span data-l="es">Lo que más confunde</span><span data-l="en">What confuses most</span></b>
+    <p><span data-l="es"><b>1.</b> Elegir menos capas <b>no quita nada</b>: <code>--only core</code> después de instalar más capas las deja puestas. Para quitar una, <code>--uninstall</code>.</span><span data-l="en"><b>1.</b> Choosing fewer layers <b>removes nothing</b>: <code>--only core</code> after installing more layers leaves them in place. To remove one, <code>--uninstall</code>.</span></p>
+    <p><span data-l="es"><b>2.</b> Dentro de Claude el sandbox no deja escribir en <code>~/.claude</code> ni en <code>build/</code>. Corre el comando tú, con <code>!</code> delante: <code>! ./install.sh</code>.</span><span data-l="en"><b>2.</b> Inside Claude the sandbox cannot write to <code>~/.claude</code> or <code>build/</code>. Run the command yourself with a <code>!</code> prefix: <code>! ./install.sh</code>.</span></p>
+    <p><span data-l="es"><b>3.</b> Tras instalar, <b>abre una sesión nueva</b>: el guard lee <code>build/policy.json</code> al arrancar.</span><span data-l="en"><b>3.</b> After installing, <b>open a new session</b>: the guard reads <code>build/policy.json</code> at start.</span></p>
+    <p><span data-l="es"><b>4.</b> Si los tests fallan, no instala nada. Detalle: <code>python3 -m unittest discover -s tests</code>.</span><span data-l="en"><b>4.</b> If the tests fail, nothing is installed. Details: <code>python3 -m unittest discover -s tests</code>.</span></p>
+  </div>
+</section>
+
+<!-- ================= AGENTES ================= -->
+<section class="blk" id="agentes">
+  <div class="bh"><h2><span data-l="es">Agentes</span><span data-l="en">Agents</span></h2><p><span data-l="es">Un agente es un rol: qué puede tocar, qué modelo usa y cómo trabaja.</span><span data-l="en">An agent is a role: what it may touch, which model it uses and how it works.</span></p></div>
+
+  <div class="agents">
+    <article class="ag c-flow"><div class="h"><b>flow-ticket</b><span><span data-l="es">orquesta</span><span data-l="en">orchestrates</span></span></div><div class="b">
+      <p data-l="es">Lleva un ticket entero: un writer construye y los demás exploran, revisan y validan en paralelo.</p>
+      <p data-l="en">Runs a whole ticket: one writer builds while the others explore, review and validate in parallel.</p>
+      <dl data-l="es"><dt>Escribe</dt><dd>solo planes en <code>~/handoffs</code></dd><dt>Modelo</dt><dd>fuerte</dd><dt>Úsalo</dt><dd>como sesión principal</dd></dl>
+      <dl data-l="en"><dt>Writes</dt><dd>only plans in <code>~/handoffs</code></dd><dt>Model</dt><dd>strong</dd><dt>Use it</dt><dd>as the main session</dd></dl></div></article>
+    <article class="ag c-sub"><div class="h"><b>sub-review</b><span><span data-l="es">revisa</span><span data-l="en">reviews</span></span></div><div class="b">
+      <p data-l="es">Review escéptico contra los requisitos, con evidencia <code>archivo:línea</code>.</p>
+      <p data-l="en">Skeptical review against the requirements, with <code>file:line</code> evidence.</p>
+      <dl data-l="es"><dt>Escribe</dt><dd>nada</dd><dt>Modelo</dt><dd>fuerte</dd><dt>Úsalo</dt><dd>antes de aceptar o mergear</dd></dl>
+      <dl data-l="en"><dt>Writes</dt><dd>nothing</dd><dt>Model</dt><dd>strong</dd><dt>Use it</dt><dd>before accepting or merging</dd></dl></div></article>
+    <article class="ag c-test"><div class="h"><b>sub-tester</b><span>tests</span></div><div class="b">
+      <p data-l="es">En un bug, el test que falla. En una feature, los casos borde.</p>
+      <p data-l="en">For a bug, the failing test. For a feature, the edge cases.</p>
+      <dl data-l="es"><dt>Escribe</dt><dd>solo tests</dd><dt>Modelo</dt><dd>medio</dd><dt>Úsalo</dt><dd>antes del fix (bug) o después de implementar (feature)</dd></dl>
+      <dl data-l="en"><dt>Writes</dt><dd>only tests</dd><dt>Model</dt><dd>balanced</dd><dt>Use it</dt><dd>before the fix (bug) or after implementing (feature)</dd></dl></div></article>
+    <article class="ag c-leaf"><div class="h"><b>leaf-verify</b><span><span data-l="es">valida</span><span data-l="en">validates</span></span></div><div class="b">
+      <p data-l="es">Corre format, build, tests y checks, y te da un recibo. No arregla nada.</p>
+      <p data-l="en">Runs format, build, tests and checks, and gives you a receipt. Fixes nothing.</p>
+      <dl data-l="es"><dt>Escribe</dt><dd>nada</dd><dt>Modelo</dt><dd>rápido</dd><dt>Úsalo</dt><dd><code>/validate</code>, antes del PR</dd></dl>
+      <dl data-l="en"><dt>Writes</dt><dd>nothing</dd><dt>Model</dt><dd>fast</dd><dt>Use it</dt><dd><code>/validate</code>, before the PR</dd></dl></div></article>
+    <article class="ag c-meta"><div class="h"><b>meta-setup</b><span><span data-l="es">mantiene</span><span data-l="en">maintains</span></span></div><div class="b">
+      <p data-l="es">Cuida esta carpeta: crea skills, añade reglas y reinstala.</p>
+      <p data-l="en">Looks after this folder: creates skills, adds rules and reinstalls.</p>
+      <dl data-l="es"><dt>Escribe</dt><dd>solo <code>ai-setup</code></dd><dt>Modelo</dt><dd>medio</dd><dt>Úsalo</dt><dd>"guarda esto", "conviértelo en skill"</dd></dl>
+      <dl data-l="en"><dt>Writes</dt><dd>only <code>ai-setup</code></dd><dt>Model</dt><dd>balanced</dd><dt>Use it</dt><dd>"save this", "turn it into a skill"</dd></dl></div></article>
+  </div>
+  <p class="muted"><span data-l="es">El código y sus docs los escribe <b>un solo</b> agente general (general / build) por ticket, en su worktree.</span><span data-l="en">Code and its docs are written by <b>one</b> general agent (general / build) per ticket, in its own worktree.</span></p>
+
+  <h3><span data-l="es">Prefijos</span><span data-l="en">Prefixes</span></h3>
+  <div class="prefix">
+    <span class="c-flow"><b>flow-*</b> <i data-l="es" style="font-style:normal">coordina etapas</i><i data-l="en" style="font-style:normal">coordinates stages</i></span>
+    <span class="c-sub"><b>sub-*</b> <i data-l="es" style="font-style:normal">especialista delegado</i><i data-l="en" style="font-style:normal">delegated specialist</i></span>
+    <span class="c-leaf"><b>leaf-*</b> <i data-l="es" style="font-style:normal">tarea estrecha, no delega</i><i data-l="en" style="font-style:normal">narrow task, never delegates</i></span>
+    <span class="c-meta"><b>meta-*</b> <i data-l="es" style="font-style:normal">mantiene el setup</i><i data-l="en" style="font-style:normal">maintains the setup</i></span>
+  </div>
+
+  <h3><span data-l="es">¿Agente nuevo o skill?</span><span data-l="en">New agent or skill?</span></h3>
+  <div class="decide">
+    <div class="dq c-meta"><span class="q"><span data-l="es">¿Necesita <b>otros permisos</b> (solo tests, solo docs, nada)?</span><span data-l="en">Does it need <b>different permissions</b> (tests only, docs only, nothing)?</span></span><span class="a"><span data-l="es">→ agente</span><span data-l="en">→ agent</span></span></div>
+    <div class="dq c-meta"><span class="q"><span data-l="es">¿Necesita <b>otro modelo</b> (barato o más fuerte)?</span><span data-l="en">Does it need <b>another model</b> (cheaper or stronger)?</span></span><span class="a"><span data-l="es">→ agente</span><span data-l="en">→ agent</span></span></div>
+    <div class="dq c-test"><span class="q"><span data-l="es">¿Es un <b>procedimiento</b> que repites (pasos, formato, checklist)?</span><span data-l="en">Is it a <b>procedure</b> you repeat (steps, format, checklist)?</span></span><span class="a">→ skill</span></div>
+    <div class="dq c-leaf"><span class="q"><span data-l="es">¿Es una <b>regla</b> que vale siempre?</span><span data-l="en">Is it a <b>rule</b> that always applies?</span></span><span class="a">→ AGENTS.md</span></div>
+  </div>
+  <div class="tip"><b class="t"><span data-l="es">Regla Yoda</span><span data-l="en">Yoda rule</span></b><p><span data-l="es">Añade un agente solo si el trabajo necesita una forma realmente distinta de operar. Si cambiar de agente pesa más que el trabajo, sobran agentes.</span><span data-l="en">Add an agent only when the work needs a truly different way of operating. If switching agents costs more than the work, you have too many agents.</span></p></div>
+
+  <h3><span data-l="es">Agregar un agente</span><span data-l="en">Adding an agent</span></h3>
+  <div class="grid g2">
+    <ol class="steps" style="--c:var(--meta)">
+      <li><div><span data-l="es">Pídelo: <i>"crea un agente sub-security que audite seguridad, solo lectura"</i>. Lo hace <code>meta-setup</code>.</span><span data-l="en">Ask for it: <i>"create a sub-security agent that audits security, read-only"</i>. <code>meta-setup</code> does it.</span></div></li>
+      <li><div><span data-l="es">O a mano: crea <code>core/agents/&lt;prefijo&gt;-&lt;nombre&gt;.md</code> con la plantilla.</span><span data-l="en">Or by hand: create <code>core/agents/&lt;prefix&gt;-&lt;name&gt;.md</code> from the template.</span></div></li>
+      <li><div><span data-l="es">Ejecuta <code>./install.sh</code>. Genera el agente para Claude y para OpenCode.</span><span data-l="en">Run <code>./install.sh</code>. It builds the agent for Claude and for OpenCode.</span></div></li>
+      <li><div><span data-l="es">Para usarlo, menciónalo: <i>"usa sub-security sobre esta rama"</i>.</span><span data-l="en">To use it, name it: <i>"use sub-security on this branch"</i>.</span></div></li>
+    </ol>
+    <div class="code"><span class="cap">core/agents/sub-security.md</span><pre data-l="es">---
+name: sub-security
+description: Auditoría de seguridad de un diff. Usar
+  para "revisa seguridad", "¿es seguro?". Solo lectura.
+mode: subagent        <span class="cm"># subagent | primary | all</span>
+edit: none            <span class="cm"># none | all | globs: */docs/*, *.md</span>
+bash: read-only       <span class="cm"># read-only | checks | all</span>
+claude_tools: Read, Grep, Glob, Bash   <span class="cm"># * = todas</span>
+tier: strong          <span class="cm"># strong | balanced | fast</span>
+color: red
+---
+
+Eres auditor de seguridad. Asumes que hay fallos...
+## Output
+- Veredicto · tabla de hallazgos · qué no verificaste</pre><pre data-l="en">---
+name: sub-security
+description: Security audit of a diff. Use for
+  "check security", "is this safe?". Read-only.
+mode: subagent        <span class="cm"># subagent | primary | all</span>
+edit: none            <span class="cm"># none | all | globs: */docs/*, *.md</span>
+bash: read-only       <span class="cm"># read-only | checks | all</span>
+claude_tools: Read, Grep, Glob, Bash   <span class="cm"># * = all</span>
+tier: strong          <span class="cm"># strong | balanced | fast</span>
+color: red
+---
+
+You are a security auditor. Assume there are flaws...
+## Output
+- Verdict · findings table · what you did not verify</pre><button class="copy" type="button">Copiar</button></div>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th><span data-l="es">Campo</span><span data-l="en">Field</span></th><th><span data-l="es">Qué controla</span><span data-l="en">What it controls</span></th><th><span data-l="es">Valores</span><span data-l="en">Values</span></th></tr></thead>
+    <tbody>
+      <tr><td><code>description</code></td><td><span data-l="es">Cuándo se elige solo. Pon <b>tus frases reales</b></span><span data-l="en">When it gets picked on its own. Use <b>your real phrases</b></span></td><td><span data-l="es">texto</span><span data-l="en">text</span></td></tr>
+      <tr><td><code>edit</code></td><td><span data-l="es">Qué archivos puede escribir (OpenCode lo hace cumplir; en Claude lo dice el prompt)</span><span data-l="en">Which files it may write (OpenCode enforces it; in Claude the prompt says it)</span></td><td><code>none</code> · <code>all</code> · globs</td></tr>
+      <tr><td><code>bash</code></td><td><span data-l="es">Qué comandos puede correr</span><span data-l="en">Which commands it may run</span></td><td><span data-l="es"><code>read-only</code> (git diff/log, ls, grep) · <code>checks</code> (todo menos cambiar git) · <code>all</code></span><span data-l="en"><code>read-only</code> (git diff/log, ls, grep) · <code>checks</code> (everything except changing git) · <code>all</code></span></td></tr>
+      <tr><td><code>tier</code></td><td><span data-l="es">Modelo. Claude: opus / sonnet / haiku (la sesión principal usa <code>opusplan</code>: Opus planea, Sonnet ejecuta). OpenCode: <code>adapters/opencode/tiers.json</code></span><span data-l="en">Model. Claude: opus / sonnet / haiku (the main session uses <code>opusplan</code>: Opus plans, Sonnet executes). OpenCode: <code>adapters/opencode/tiers.json</code></span></td><td><code>strong</code> · <code>balanced</code> · <code>fast</code></td></tr>
+      <tr><td><code>effort</code></td><td><span data-l="es">Cuánto razona (Claude lo aplica; OpenCode todavía no). Sube el esfuerzo antes que el modelo</span><span data-l="en">How hard it reasons (Claude applies it; OpenCode not yet). Raise effort before the model</span></td><td><code>low</code> · <code>medium</code> · <code>high</code></td></tr>
+      <tr><td><code>mode</code></td><td><span data-l="es">Si es sesión principal o subagente</span><span data-l="en">Main session or subagent</span></td><td><code>primary</code> · <code>subagent</code> · <code>all</code></td></tr>
+    </tbody></table></div>
+</section>
+
+<!-- ================= SKILLS ================= -->
+<section class="blk" id="skills">
+  <div class="bh"><h2>Skills</h2><p><span data-l="es">Una skill es una receta: pasos, formato y checklist para un tipo de tarea.</span><span data-l="en">A skill is a recipe: steps, format and checklist for one kind of task.</span></p></div>
+
+  <h3 style="margin:18px 0 8px"><span data-l="es">¿Cuál uso? Por tipo de tarea</span><span data-l="en">Which one do I use? By kind of task</span></h3>
+  <div class="tbl"><table>
+    <thead><tr><th><span data-l="es">Estoy…</span><span data-l="en">I am…</span></th><th><span data-l="es">Ejemplo: lo que le digo</span><span data-l="en">Example: what I say</span></th><th><span data-l="es">Skill</span><span data-l="en">Skill</span></th></tr></thead>
+    <tbody>
+      <tr><td><span data-l="es"><b>Empezando</b> con una idea vaga o una decisión difícil</span><span data-l="en"><b>Starting</b> with a vague idea or a hard decision</span></td><td><code><span data-l="es">grill me: quiero cambiar cómo pedimos OK en los commits</span><span data-l="en">grill me: I want to change how commits ask for OK</span></code></td><td><code>grillme</code></td></tr>
+      <tr><td><span data-l="es"><b>Construyendo</b> un ticket completo, de punta a punta</span><span data-l="en"><b>Building</b> a whole ticket, end to end</span></td><td><code><span data-l="es">trabaja el ticket DC-1103</span><span data-l="en">work ticket DC-1103</span></code><br><span class="muted"><span data-l="es">Si el ticket es vago, te entrevista primero con <code>grillme</code>. Si es una feature chica, no hace falta: pídela directo.</span><span data-l="en">If the ticket is vague, it interviews you first with <code>grillme</code>. For a small feature you do not need it: just ask.</span></span></td><td><code>ticket-flow</code></td></tr>
+      <tr><td><span data-l="es"><b>Arreglando un bug</b> o un test que falla</span><span data-l="en"><b>Fixing a bug</b> or a failing test</span></td><td><code><span data-l="es">el login devuelve 500 con teléfonos con +; encuentra la causa</span><span data-l="en">login returns 500 for phones with +; find the cause</span></code><br><span class="muted"><span data-l="es">Después, para blindarlo: "test primero" (<code>tdd</code>).</span><span data-l="en">Then, to lock it in: "test first" (<code>tdd</code>).</span></span></td><td><code>systematic-debugging</code></td></tr>
+      <tr><td><span data-l="es"><b>Escribiendo código nuevo</b> con tests que lo protejan</span><span data-l="en"><b>Writing new code</b> with tests that protect it</span></td><td><code><span data-l="es">hazlo con TDD: validar el IBAN antes de enviar</span><span data-l="en">do it with TDD: validate the IBAN before sending</span></code></td><td><code>tdd</code></td></tr>
+      <tr><td><span data-l="es"><b>Revisando</b> si algo está listo para PR</span><span data-l="en"><b>Checking</b> whether something is ready for a PR</span></td><td><code>/validate</code> · <code><span data-l="es">¿cumple el PR con lo pedido en el ticket?</span><span data-l="en">does the PR cover what the ticket asks?</span></code></td><td><code>validate</code> · <code>pr-review-ticket</code></td></tr>
+      <tr><td><span data-l="es"><b>Cerrando o traspasando</b>: commit de un cambio, o seguir en otra sesión</span><span data-l="en"><b>Wrapping up</b>: commit a change, or continue in another session</span></td><td><code><span data-l="es">cierra el cambio de ai-setup</span><span data-l="en">wrap up the ai-setup change</span></code> · <code><span data-l="es">genera el prompt para la otra sesión</span><span data-l="en">write the prompt for the other session</span></code></td><td><code>setup-commit</code> · <code>session-handoff</code></td></tr>
+    </tbody></table></div>
+  <div class="tip"><b class="t"><span data-l="es">Regla rápida</span><span data-l="en">Rule of thumb</span></b><p><span data-l="es">¿No sabes qué pedir? <code>grillme</code>. ¿Sabes qué pedir pero es grande? <code>ticket-flow</code>. ¿Algo se rompió? <code>systematic-debugging</code>. ¿Terminaste? <code>validate</code>, y luego escribir y cerrar. No tienes que nombrar la skill: con las palabras de los ejemplos se activa sola.</span><span data-l="en">Not sure what to ask? <code>grillme</code>. Know what to ask but it is big? <code>ticket-flow</code>. Something broke? <code>systematic-debugging</code>. Done? <code>validate</code>, then write and close. You do not have to name the skill: the words in the examples trigger it on their own.</span></p></div>
+
+  <h3 style="margin:18px 0 8px"><span data-l="es">Referencia completa</span><span data-l="en">Full reference</span></h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Skill</th><th><span data-l="es">Se activa con…</span><span data-l="en">Triggered by…</span></th><th><span data-l="es">Hace</span><span data-l="en">Does</span></th></tr></thead>
+    <tbody>
+      <tr><td><code>ticket-flow</code></td><td><span data-l="es">"trabaja el ticket PROJ-123", "orquestá"</span><span data-l="en">"work ticket PROJ-123", "orchestrate"</span></td><td><span data-l="es">Ticket de punta a punta: contrato de alcance (allowlist + OK) primero, un writer, lecturas en paralelo, 2 gates</span><span data-l="en">Ticket end to end: scope contract (allowlist + OK) first, one writer, reads in parallel, 2 gates</span></td></tr>
+      <tr><td><code>validate</code></td><td><span data-l="es"><code>/validate</code>, "pasa los checks"</span><span data-l="en"><code>/validate</code>, "run the checks"</span></td><td><span data-l="es">Lanza <code>leaf-verify</code> y te da el recibo</span><span data-l="en">Runs <code>leaf-verify</code> and gives you the receipt</span></td></tr>
+      <tr><td><code>pr-review-ticket</code></td><td><span data-l="es">"review escéptico del PR contra el ticket"</span><span data-l="en">"skeptical review of the PR against the ticket"</span></td><td><span data-l="es">Requisitos ✅🟡❌, fuera de alcance, veredicto. Bugs genéricos: <code>/code-review</code></span><span data-l="en">Requirements ✅🟡❌, out of scope, verdict. Generic bugs: <code>/code-review</code></span></td></tr>
+      <tr><td><code>session-handoff</code></td><td><span data-l="es">"genera el prompt para la otra sesión"</span><span data-l="en">"write the prompt for the other session"</span></td><td><span data-l="es">Archivo de traspaso completo en <code>~/handoffs</code></span><span data-l="en">Full handoff file in <code>~/handoffs</code></span></td></tr>
+      <tr><td><code>tdd</code></td><td><span data-l="es">"TDD", "test primero", "red-green"</span><span data-l="en">"TDD", "test first", "red-green"</span></td><td><span data-l="es">Un test → el mínimo código → repetir. Tests en las seams acordadas en el plan</span><span data-l="en">One test → minimal code → repeat. Tests at the seams agreed in the plan</span></td></tr>
+      <tr><td><code>systematic-debugging</code></td><td><span data-l="es">Cualquier bug o test que falla</span><span data-l="en">Any bug or failing test</span></td><td><span data-l="es">Causa raíz antes del fix. Tras 3 arreglos fallidos, para y revisa la arquitectura</span><span data-l="en">Root cause before the fix. After 3 failed fixes, stop and question the architecture</span></td></tr>
+      <tr><td><code>setup-commit</code></td><td><span data-l="es">"commitea esto", "cierra el cambio de ai-setup"</span><span data-l="en">"commit this", "wrap up the ai-setup change"</span></td><td><span data-l="es">Cheatsheet + tests + <code>git add</code> solo de tus rutas; mensaje en inglés con tu OK; nunca push</span><span data-l="en">Cheatsheet + tests + <code>git add</code> of your paths only; English message with your OK; never push</span></td></tr>
+      <tr><td><code>grillme</code></td><td><span data-l="es">"grill me", "hazme preguntas"</span><span data-l="en">"grill me", "ask me questions"</span></td><td><span data-l="es">Entrevista de a una pregunta antes de planear; cierra con criterios y fuera de alcance</span><span data-l="en">One-question-at-a-time interview before planning; ends with criteria and out of scope</span></td></tr>
+    </tbody></table></div>
+
+  <div class="tip"><b class="t"><span data-l="es">Idioma y tono</span><span data-l="en">Language and tone</span></b><p><span data-l="es">Core no fija idioma ni tono. Pon tus reglas de idioma, formato y estilo de escritura en el <code>AGENTS.md</code> de tu propia capa.</span><span data-l="en">Core sets no language or tone. Put your language, format and writing-style rules in your own layer's <code>AGENTS.md</code>.</span></p></div>
+
+  <div class="grid g2">
+    <div class="box">
+      <h3><span data-l="es">Instalar una de GitHub</span><span data-l="en">Install one from GitHub</span></h3>
+      <p><span data-l="es">Igual que siempre: pásale el link a Claude.</span><span data-l="en">Same as always: give Claude the link.</span></p>
+      <div class="code"><pre data-l="es">instala https://github.com/owner/una-skill</pre><pre data-l="en">install https://github.com/owner/some-skill</pre><button class="copy" type="button">Copiar</button></div>
+      <ol class="steps" style="--c:var(--test)">
+        <li><div><span data-l="es">Claude ejecuta <code>./add-skill.sh &lt;url&gt;</code>.</span><span data-l="en">Claude runs <code>./add-skill.sh &lt;url&gt;</code>.</span></div></li>
+        <li><div><span data-l="es">La copia en <code>core/skills/</code> y anota URL y commit en <code>sources.json</code>.</span><span data-l="en">Copies it into <code>core/skills/</code> and records URL and commit in <code>sources.json</code>.</span></div></li>
+        <li><div><span data-l="es">La instala en todas tus herramientas.</span><span data-l="en">Installs it in all your tools.</span></div></li>
+        <li><div><span data-l="es">Te resume qué hace y si trae scripts o algo raro.</span><span data-l="en">Tells you what it does and whether it ships scripts or anything odd.</span></div></li>
+      </ol>
+    </div>
+    <div class="box">
+      <h3><span data-l="es">Crear una propia</span><span data-l="en">Create your own</span></h3>
+      <p><span data-l="es">Cuando pides lo mismo por <b>segunda vez</b>, di: <i>"conviértelo en skill"</i>. O a mano:</span><span data-l="en">When you ask for the same thing a <b>second time</b>, say: <i>"turn it into a skill"</i>. Or by hand:</span></p>
+      <div class="code"><span class="cap">core/skills/merge-pr/SKILL.md</span><pre data-l="es">---
+name: merge-pr
+description: Actualiza un PR con develop y lo
+  mergea por API. Usar con "mergear por API",
+  "actualizar con develop", "quedó desactualizado".
+---
+
+# Mergear un PR
+1. Comprueba que el CI pasó...
+2. ...</pre><pre data-l="en">---
+name: merge-pr
+description: Updates a PR with develop and
+  merges it via API. Use for "merge via API",
+  "update with develop", "branch is out of date".
+---
+
+# Merge a PR
+1. Check that CI passed...
+2. ...</pre><button class="copy" type="button">Copiar</button></div>
+      <p class="muted"><span data-l="es">Después:</span><span data-l="en">Then:</span> <code>./install.sh</code></p>
+    </div>
+  </div>
+  <div class="tip"><b class="t"><span data-l="es">Clave</span><span data-l="en">Key</span></b><p><span data-l="es">La <code>description</code> decide cuándo se activa sola. Escríbela con las palabras que tú usas, en español y en inglés.</span><span data-l="en">The <code>description</code> decides when it triggers on its own. Write it with the words you actually use, in Spanish and English.</span></p></div>
+  <div class="cmds">
+    <div class="cmd"><code>./add-skill.sh &lt;url&gt; skills/foo</code><span><span data-l="es">El repo trae varias skills: indica la carpeta</span><span data-l="en">The repo has several skills: pick the folder</span></span></div>
+    <div class="cmd"><code>./add-skill.sh --update &lt;skill&gt;</code><span><span data-l="es">Actualizar desde su origen (guarda backup)</span><span data-l="en">Update from its source (keeps a backup)</span></span></div>
+    <div class="cmd"><code>./add-skill.sh &lt;url&gt; --layer &lt;layer&gt;</code><span><span data-l="es">Añadir la skill a esa capa (por defecto, core)</span><span data-l="en">Add the skill to that layer (default: core)</span></span></div>
+    <div class="cmd"><code>./add-skill.sh --list</code><span><span data-l="es">De dónde viene cada skill</span><span data-l="en">Where each skill comes from</span></span></div>
+    <div class="cmd"><code>./install.sh --adopt</code><span><span data-l="es">Traer a ai-setup (<code>--layer</code> elige la capa) una skill instalada directo en ~/.claude/skills</span><span data-l="en">Bring into ai-setup (<code>--layer</code> picks the layer) a skill installed straight into ~/.claude/skills</span></span></div>
+  </div>
+</section>
+
+<!-- ================= CAPAS ================= -->
+<section class="blk" id="capas">
+  <div class="bh"><h2><span data-l="es">Capas</span><span data-l="en">Layers</span></h2><p><span data-l="es">Carpetas con la misma forma. <code>core/</code> viene en el repo; las tuyas son opcionales y pueden vivir en otro repo (<code>--layers-dir</code>). Una capa solo añade, nunca quita una regla de otra.</span><span data-l="en">Folders with the same shape. <code>core/</code> ships in the repo; yours are optional and can live in another repo (<code>--layers-dir</code>). A layer only adds, it never removes another layer's rule.</span></p></div>
+  <div class="loop">
+    <div class="st"><span class="k">core/</span><span class="muted"><span data-l="es">Genérico: sirve para cualquier persona y trabajo.</span><span data-l="en">Generic: fits any person and job.</span></span><span class="muted"><span data-l="es">Guard, agentes, skills de proceso (<code>ticket-flow</code>, <code>validate</code>, <code>tdd</code>…), límites de git/gh y secretos, sandbox base. Siempre se instala.</span><span data-l="en">Guard, agents, process skills (<code>ticket-flow</code>, <code>validate</code>, <code>tdd</code>…), git/gh and secret limits, base sandbox. Always installed.</span></span></div>
+    <div class="st"><span class="k">&lt;yours&gt;/</span><span class="muted"><span data-l="es">Opcional: lo tuyo.</span><span data-l="en">Optional: yours.</span></span><span class="muted"><span data-l="es">Tu idioma y tono en <code>AGENTS.md</code>, permisos de tus herramientas de trabajo en <code>policy.json</code>, skills y notas propias. Se carga con <code>--layers-dir</code> y <code>--with</code>.</span><span data-l="en">Your language and tone in <code>AGENTS.md</code>, permissions for your work tools in <code>policy.json</code>, your own skills and notes. Loaded with <code>--layers-dir</code> and <code>--with</code>.</span></span></div>
+  </div>
+  <div class="code"><span class="cap">./install.sh</span><pre>core/    ─┐
+&lt;yours&gt;/ ─┼─ install.py ─▶ build/AGENTS.md  ─▶ ~/.claude/CLAUDE.md, ~/.codex/AGENTS.md
+        ─┘      │       └▶ build/policy.json ─▶ guard + permisos + sandbox de cada herramienta
+                 └▶ skills/agentes enlazados · notas ▶ ~/ai-notes/ · perfil ▶ ~/.ai-setup-profile</pre></div>
+  <p class="muted"><span data-l="es">Cómo instalar cada combinación: sección <a href="#instalar">Instalar</a>.</span><span data-l="en">How to install each combination: <a href="#instalar">Install</a> section.</span></p>
+  <h3><span data-l="es">Crear una capa nueva</span><span data-l="en">Create a new layer</span></h3>
+  <ol class="steps" style="--c:var(--leaf)">
+    <li><div><span data-l="es">Crea una carpeta en <code>~/Dev/ai-setup/</code> con el nombre de la capa: <code>php/</code>, <code>acme/</code>… (minúsculas, números, <code>-</code> y <code>_</code>).</span><span data-l="en">Create a folder in <code>~/Dev/ai-setup/</code> named after the layer: <code>php/</code>, <code>acme/</code>… (lowercase, digits, <code>-</code> and <code>_</code>).</span></div></li>
+    <li><div><span data-l="es">Mete dentro solo lo que necesites: <code>policy.json</code> (permisos), <code>AGENTS.md</code> (reglas), <code>skills/</code>, <code>agents/</code> o <code>notes/</code>. La carpeta ya es una capa; no hay que registrarla en ningún sitio.</span><span data-l="en">Put in only what you need: <code>policy.json</code> (permissions), <code>AGENTS.md</code> (rules), <code>skills/</code>, <code>agents/</code> or <code>notes/</code>. The folder is already a layer; nothing to register.</span></div></li>
+    <li><div><span data-l="es"><code>./install.sh --with php</code>. Una capa nueva <b>nunca se instala sola</b>: tienes que pedirla. Para quitarla: <code>--uninstall php</code>.</span><span data-l="en"><code>./install.sh --with php</code>. A new layer is <b>never installed on its own</b>: you have to ask for it. To remove it: <code>--uninstall php</code>.</span></div></li>
+  </ol>
+  <p class="muted"><span data-l="es">Una capa por <b>contexto</b> (empleador, cliente), no por lenguaje, salvo que el lenguaje traiga permisos o skills propias. Nombres reservados: <code>adapters</code>, <code>docs</code>, <code>tests</code>, <code>build</code>. Si dos capas tienen una skill con el mismo nombre, el instalador para.</span><span data-l="en">One layer per <b>context</b> (employer, client), not per language, unless the language brings its own permissions or skills. Reserved names: <code>adapters</code>, <code>docs</code>, <code>tests</code>, <code>build</code>. If two layers have a skill with the same name, the installer stops.</span></p>
+</section>
+
+<!-- ================= DONDE ================= -->
+<section class="blk" id="donde">
+  <div class="bh"><h2><span data-l="es">Dónde va cada cosa</span><span data-l="en">Where things go</span></h2><p><span data-l="es">Si lo corriges dos veces, guárdalo. Dile "guarda esto" a <code>meta-setup</code>.</span><span data-l="en">If you correct it twice, save it. Tell <code>meta-setup</code> "save this".</span></p></div>
+  <div class="tbl"><table>
+    <thead><tr><th><span data-l="es">Quiero…</span><span data-l="en">I want…</span></th><th><span data-l="es">Archivo</span><span data-l="en">File</span></th><th><span data-l="es">Ejemplo</span><span data-l="en">Example</span></th></tr></thead>
+    <tbody>
+      <tr><td><span data-l="es">Una regla para todo y todas las herramientas</span><span data-l="en">A rule for everything and every tool</span></td><td><code>core/AGENTS.md</code> <span data-l="es">(tuyo: <code>&lt;tuya&gt;/AGENTS.md</code>)</span><span data-l="en">(yours: <code>&lt;yours&gt;/AGENTS.md</code>)</span></td><td><span data-l="es">"nunca commit sin mi OK" en core; "conmigo en español" en tu capa</span><span data-l="en">"never commit without my OK" in core; "reply in Spanish" in your layer</span></td></tr>
+      <tr><td><span data-l="es">Un procedimiento repetible</span><span data-l="en">A repeatable procedure</span></td><td><code>&lt;capa&gt;/skills/&lt;n&gt;/SKILL.md</code></td><td><span data-l="es">review de PR, traspaso</span><span data-l="en">PR review, handoff</span></td></tr>
+      <tr><td><span data-l="es">Otro rol, permisos o modelo</span><span data-l="en">Another role, permissions or model</span></td><td><code>&lt;capa&gt;/agents/&lt;n&gt;.md</code></td><td><span data-l="es">auditor de seguridad de solo lectura</span><span data-l="en">read-only security auditor</span></td></tr>
+      <tr><td><span data-l="es">Permitir, pedir OK o prohibir algo</span><span data-l="en">Allow, ask for OK, or forbid something</span></td><td><code>&lt;capa&gt;/policy.json</code> <span data-l="es">(editarlo pide tu OK; las capas se suman)</span><span data-l="en">(editing it asks for your OK; layers add up)</span></td><td><span data-l="es">pedir OK en <code>git merge</code></span><span data-l="en">ask for OK on <code>git merge</code></span></td></tr>
+      <tr><td><span data-l="es">Algo que solo <b>una herramienta</b> hace, o hace mejor</span><span data-l="en">Something only <b>one tool</b> can do, or does better</span></td><td><code>adapters/&lt;tool&gt;/</code></td><td><span data-l="es">hook de Claude, plugin o modelo por agente en OpenCode. Añade, no reemplaza a core</span><span data-l="en">a Claude hook, an OpenCode plugin or per-agent model. It adds to core, never replaces it</span></td></tr>
+      <tr><td><span data-l="es">Una regla mía para <b>un</b> repo</span><span data-l="en">My own rule for <b>one</b> repo</span></td><td><code>~/ai-notes/&lt;repo&gt;.md</code> <span data-l="es">(fuera del setup)</span><span data-l="en">(outside the setup)</span></td><td><span data-l="es">"en este repo los pendientes van al tracker del equipo"</span><span data-l="en">"in this repo, follow-ups go to the team tracker"</span></td></tr>
+      <tr><td><span data-l="es">Una regla del <b>equipo</b></span><span data-l="en">A <b>team</b> rule</span></td><td><span data-l="es">el AGENTS.md / CLAUDE.md del repo</span><span data-l="en">the repo's AGENTS.md / CLAUDE.md</span></td><td><span data-l="es">se acuerda con el equipo, no aquí</span><span data-l="en">agreed with the team, not here</span></td></tr>
+    </tbody></table></div>
+</section>
+
+<!-- ================= TAREAS ================= -->
+<section class="blk" id="tareas">
+  <div class="bh"><h2><span data-l="es">Cómo encarar una tarea</span><span data-l="en">How to tackle a task</span></h2><p><span data-l="es">La herramienta puede ser la misma; el primer paso cambia según el tipo de tarea.</span><span data-l="en">The tool can stay the same; the first step depends on the kind of task.</span></p></div>
+
+  <div class="tasks">
+    <article class="task c-test"><div class="h"><b><span data-l="es">Nueva feature</span><span data-l="en">New feature</span></b><span><span data-l="es">Diseño primero</span><span data-l="en">Design first</span></span></div>
+      <ol data-l="es"><li>Problema y versión mínima útil</li><li>Qué queda <b>fuera</b> de alcance</li><li>Criterios de aceptación, cada uno con su check</li><li>Construir lo más fino posible, con <code>tdd</code></li></ol>
+      <ol data-l="en"><li>Problem and smallest useful version</li><li>What is <b>out</b> of scope</li><li>Acceptance criteria, each with its check</li><li>Build the thinnest slice, with <code>tdd</code></li></ol></article>
+    <article class="task c-flow"><div class="h"><b><span data-l="es">Editar feature</span><span data-l="en">Change a feature</span></b><span><span data-l="es">Contexto primero</span><span data-l="en">Context first</span></span></div>
+      <ol data-l="es"><li>Mapear el flujo actual de punta a punta</li><li><b>Extender</b>, no duplicar</li><li>Quitar código viejo y fallbacks</li><li>Actualizar tests, no solo añadir</li></ol>
+      <ol data-l="en"><li>Map the current flow end to end</li><li><b>Extend</b>, don't duplicate</li><li>Remove old code and fallbacks</li><li>Update tests, don't just add</li></ol></article>
+    <article class="task c-risk"><div class="h"><b>Bug</b><span><span data-l="es">Reproducción primero</span><span data-l="en">Reproduce first</span></span></div>
+      <ol data-l="es"><li>Qué pasa y qué debería pasar</li><li><code>systematic-debugging</code>: causa raíz</li><li><code>sub-tester</code>: test que <b>falla</b> por la razón correcta</li><li>Recién entonces, el fix</li><li>El test pasa y nada más se rompe</li></ol>
+      <ol data-l="en"><li>What happens and what should happen</li><li><code>systematic-debugging</code>: root cause</li><li><code>sub-tester</code>: a test that <b>fails</b> for the right reason</li><li>Only then, the fix</li><li>The test passes and nothing else breaks</li></ol></article>
+  </div>
+
+  <h3><span data-l="es">Un ticket entero:</span><span data-l="en">A whole ticket:</span> <code>ticket-flow</code></h3>
+  <div class="pipe-wrap" role="img" aria-label="Entender (Explore en paralelo) → plan → gate 1 → construir (un writer, un worktree) → validar y revisar en paralelo → gate 2. / Understand → plan → gate 1 → build (one writer, one worktree) → validate and review in parallel → gate 2.">
+    <div class="pipe">
+      <div class="stage"><span class="t"><span data-l="es">0 Contrato + Entender</span><span data-l="en">0 Contract + Understand</span></span><span class="chip gate"><span data-l="es">allowlist · OK</span><span data-l="en">allowlist · OK</span></span><span class="chip c-leaf">Explore</span><span class="chip c-leaf">Explore</span><span class="chip c-leaf"><span data-l="es">ticket + reglas</span><span data-l="en">ticket + rules</span></span><span class="par"><span data-l="es">‖ en paralelo</span><span data-l="en">‖ in parallel</span></span></div>
+      <span class="arrow">→</span>
+      <div class="stage"><span class="t">1 Plan</span><span class="chip c-flow">plan.md</span><span class="par"><span data-l="es">alcance · criterios · pasos</span><span data-l="en">scope · criteria · steps</span></span></div>
+      <span class="arrow">→</span>
+      <div class="stage"><span class="t">⛔ Gate 1</span><span class="chip gate"><span data-l="es">apruebas</span><span data-l="en">you approve</span></span><span class="par"><span data-l="es">todas las preguntas juntas</span><span data-l="en">all questions at once</span></span></div>
+      <span class="arrow">→</span>
+      <div class="stage"><span class="t"><span data-l="es">2 Construir</span><span data-l="en">2 Build</span></span><span class="chip c-flow">writer</span><span class="chip c-test">sub-tester</span><span class="par"><span data-l="es">un worktree · bug: test primero · docs al final</span><span data-l="en">one worktree · bug: test first · docs last</span></span></div>
+      <span class="arrow">→</span>
+      <div class="stage"><span class="t"><span data-l="es">3 Validar ‖ Revisar</span><span data-l="en">3 Validate ‖ Review</span></span><span class="chip c-leaf">leaf-verify</span><span class="chip c-sub">sub-review</span><span class="par"><span data-l="es">‖ hasta 2 vueltas</span><span data-l="en">‖ up to 2 rounds</span></span></div>
+      <span class="arrow">→</span>
+      <div class="stage"><span class="t">⛔ Gate 2</span><span class="chip gate">commit · push · PR</span><span class="par"><span data-l="es">recibo + borrador PR</span><span data-l="en">receipt + PR draft</span></span></div>
+    </div>
+  </div>
+
+  <div class="grid g2">
+    <div class="box">
+      <h3><span data-l="es">Arrancarlo desde Orca</span><span data-l="en">Starting it from Orca</span></h3>
+      <div class="tbl"><table>
+        <tbody>
+          <tr><td><b>Claude</b> <span data-l="es">(recomendado)</span><span data-l="en">(recommended)</span></td><td><span data-l="es">Ábrelo normal y escribe el prompt de abajo</span><span data-l="en">Open it as usual and type the prompt below</span></td></tr>
+          <tr><td><b>Claude</b> <span data-l="es">con el agente</span><span data-l="en">with the agent</span></td><td><span data-l="es"><code>claude --agent flow-ticket</code> en la terminal del workspace</span><span data-l="en"><code>claude --agent flow-ticket</code> in the workspace terminal</span></td></tr>
+          <tr><td><b>OpenCode</b></td><td><span data-l="es"><b>Tab</b> hasta llegar a <code>flow-ticket</code></span><span data-l="en"><b>Tab</b> until you reach <code>flow-ticket</code></span></td></tr>
+        </tbody></table></div>
+      <div class="code"><pre data-l="es">Trabaja PROJ-123 con la skill ticket-flow</pre><pre data-l="en">Work PROJ-123 with the ticket-flow skill</pre><button class="copy" type="button">Copiar</button></div>
+      <p class="muted" style="font-size:.88rem"><span data-l="es">El workspace de Orca ya es un worktree: ahí escribe el writer. Dentro de Orca no uses <code>-w</code> ni <code>--bg</code>.</span><span data-l="en">The Orca workspace is already a worktree: the writer works there. Inside Orca, don't use <code>-w</code> or <code>--bg</code>.</span></p>
+    </div>
+    <div class="box">
+      <h3><span data-l="es">Reglas de paralelo</span><span data-l="en">Parallel rules</span></h3>
+      <div class="tbl"><table>
+        <thead><tr><th><span data-l="es">Paso</span><span data-l="en">Step</span></th><th><span data-l="es">¿Worktree?</span><span data-l="en">Worktree?</span></th></tr></thead>
+        <tbody>
+          <tr><td><span data-l="es">Explorar, revisar, validar</span><span data-l="en">Explore, review, validate</span></td><td><span data-l="es">❌ solo leen, todos a la vez</span><span data-l="en">❌ read-only, all at once</span></td></tr>
+          <tr><td><span data-l="es">Writer + sub-tester</span><span data-l="en">Writer + sub-tester</span></td><td><span data-l="es">✅ uno solo, compartido y en secuencia</span><span data-l="en">✅ a single one, shared, in sequence</span></td></tr>
+        </tbody></table></div>
+      <ul data-l="es">
+        <li><b>Un solo writer</b> por ticket. Si el ticket pide más, se parte en tickets.</li>
+        <li>Entre gates no te pregunta nada, si lo que hace es local, reversible y verificable.</li>
+        <li>Para si: hace falta un permiso nuevo, cambia el alcance o hay un efecto externo.</li>
+      </ul>
+      <ul data-l="en">
+        <li><b>One writer</b> per ticket. If it needs more, split the ticket.</li>
+        <li>Between gates it asks you nothing, as long as the work is local, reversible and verifiable.</li>
+        <li>It stops if: a new permission is needed, the scope changes, or there is an external effect.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3><span data-l="es">Tareas sueltas</span><span data-l="en">One-off tasks</span></h3>
+  <div class="cmds">
+    <div class="cmd"><code>/validate</code><span><span data-l="es">Checks + recibo antes del PR</span><span data-l="en">Checks + receipt before the PR</span></span></div>
+    <div class="cmd"><code><span data-l="es">review escéptico de esta rama contra PROJ-123</span><span data-l="en">skeptical review of this branch against PROJ-123</span></code><span>pr-review-ticket + sub-review</span></div>
+    <div class="cmd"><code><span data-l="es">genera el handoff para la otra sesión</span><span data-l="en">write the handoff for the other session</span></code><span><span data-l="es">session-handoff → archivo en ~/handoffs</span><span data-l="en">session-handoff → file in ~/handoffs</span></span></div>
+    <div class="cmd"><code><span data-l="es">redacta la descripción del PR</span><span data-l="en">draft the PR description</span></code><span><span data-l="es">formato de PRs anteriores, en inglés</span><span data-l="en">format of previous PRs, in English</span></span></div>
+    <div class="cmd"><code><span data-l="es">grill me este ticket</span><span data-l="en">grill me on this ticket</span></code><span><span data-l="es">Entender a fondo antes de planificar</span><span data-l="en">Understand it fully before planning</span></span></div>
+    <div class="cmd"><code><span data-l="es">guarda esto como regla / skill</span><span data-l="en">save this as a rule / skill</span></code><span><span data-l="es">meta-setup lo pone en su sitio</span><span data-l="en">meta-setup puts it in the right place</span></span></div>
+  </div>
+
+  <div class="tip"><b class="t"><span data-l="es">Al cerrar</span><span data-l="en">When done</span></b><p><span data-l="es">Cada tarea termina con un <b>recibo</b>: qué cambió · qué se ejecutó · qué pasó · qué falló · qué queda incierto. Después: <code>/rename</code> + <code>/clear</code> (y si corregiste lo mismo dos veces, <code>/clear</code> con un prompt mejor).</span><span data-l="en">Every task ends with a <b>receipt</b>: what changed · what ran · what passed · what failed · what is still uncertain. Then: <code>/rename</code> + <code>/clear</code> (and if you corrected the same thing twice, <code>/clear</code> with a better prompt).</span></p></div>
+</section>
+
+<!-- ================= PERMISOS ================= -->
+<section class="blk" id="permisos">
+  <div class="bh"><h2><span data-l="es">Permisos</span><span data-l="en">Permissions</span></h2><p><span data-l="es">Todo sale de la <code>policy.json</code> de cada capa; el instalador las suma en <code>build/policy.json</code> y lo traduce a cada herramienta. Una capa solo añade reglas.</span><span data-l="en">Everything comes from each layer's <code>policy.json</code>; the installer adds them up into <code>build/policy.json</code> and translates it for each tool. A layer only adds rules.</span></p></div>
+  <div class="traffic">
+    <div class="light c-leaf"><b><span data-l="es">libre</span><span data-l="en">free</span></b><ul data-l="es"><li>Leer, buscar, editar en tu tarea</li><li><code>git status · diff · log</code></li><li>Build, tests, <code>git checkout &lt;rama&gt;</code></li></ul><ul data-l="en"><li>Read, search, edit within your task</li><li><code>git status · diff · log</code></li><li>Build, tests, <code>git checkout &lt;branch&gt;</code></li></ul></div>
+    <div class="light c-sub"><b><span data-l="es">pide tu OK</span><span data-l="en">asks for your OK</span></b><ul data-l="es"><li><code>git commit · push · merge · tag</code></li><li><code>reset --hard · clean · rebase · restore</code></li><li><code>checkout -- · branch -D · stash drop · stash clear</code></li><li><code>commit-tree · update-ref</code></li><li><code>push --force</code>, <code>rm · rmdir · find -delete</code> fuera de tmp</li><li><code>gh pr create · merge</code>, <code>gh release create</code>, <code>git worktree remove</code></li><li>Escrituras en tus trackers y herramientas de trabajo, si una capa añade esas reglas</li><li>Editar las reglas del setup (policy, guard, hooks, plugins, instalador, tests)</li></ul><ul data-l="en"><li><code>git commit · push · merge · tag</code></li><li><code>reset --hard · clean · rebase · restore</code></li><li><code>checkout -- · branch -D · stash drop · stash clear</code></li><li><code>commit-tree · update-ref</code></li><li><code>push --force</code>, <code>rm · rmdir · find -delete</code> outside tmp</li><li><code>gh pr create · merge</code>, <code>gh release create</code>, <code>git worktree remove</code></li><li>Writes to your trackers and work tools, if a layer adds those rules</li><li>Editing the setup's own rules (policy, guard, hooks, plugins, installer, tests)</li></ul></div>
+    <div class="light c-risk"><b><span data-l="es">prohibido</span><span data-l="en">forbidden</span></b><ul><li><code>.env.local</code>, <code>*.env.local</code></li><li><code>~/.ssh</code>, <code>~/.aws</code></li><li><span data-l="es">También por la shell (<code>cat</code>, <code>cp</code>…)</span><span data-l="en">Also through the shell (<code>cat</code>, <code>cp</code>…)</span></li></ul></div>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th><span data-l="es">Herramienta</span><span data-l="en">Tool</span></th><th><span data-l="es">Cómo se cumple</span><span data-l="en">How it is enforced</span></th><th><span data-l="es">Estado</span><span data-l="en">Status</span></th></tr></thead>
+    <tbody>
+      <tr><td><b>Claude Code</b></td><td><span data-l="es">Permisos + guard común (hook) + <b>sandbox del sistema</b> (secretos, red con certificados del sistema, reglas del setup) + modo <code>auto</code>. El guard ve <code>sudo</code>, <code>bash -c</code>, <code>git -C</code>, <code>git --no-pager</code>…</span><span data-l="en">Permissions + shared guard (hook) + <b>OS sandbox</b> (secrets, network with system certificates, the setup's rules) + <code>auto</code> mode. The guard sees <code>sudo</code>, <code>bash -c</code>, <code>git -C</code>, <code>git --no-pager</code>…</span></td><td><span data-l="es">✅ bloqueo real + muro del SO</span><span data-l="en">✅ enforced + OS wall</span></td></tr>
+      <tr><td><b>OpenCode</b></td><td><span data-l="es">Reglas en <code>opencode.json</code> + el mismo guard (plugin). Sin sandbox: evita <code>--auto</code>. Tras actualizar OpenCode, comprueba que <code>git push</code> pregunta</span><span data-l="en">Rules in <code>opencode.json</code> + the same guard (plugin). No sandbox: avoid <code>--auto</code>. After updating OpenCode, check that <code>git push</code> asks</span></td><td><span data-l="es">✅ bloqueo real · ⚠️ sin muro del SO</span><span data-l="en">✅ enforced · ⚠️ no OS wall</span></td></tr>
+      <tr><td><b>Codex</b></td><td><span data-l="es">Solo como instrucción en <code>AGENTS.md</code></span><span data-l="en">Only as an instruction in <code>AGENTS.md</code></span></td><td><span data-l="es">⚠️ depende de la IA</span><span data-l="en">⚠️ relies on the AI</span></td></tr>
+    </tbody></table></div>
+  <p class="muted"><span data-l="es">Carpetas de trabajo permitidas fuera del repo: <code>~/worktrees</code> (writer) y <code>~/handoffs</code> (planes y traspasos). Un host que no está en la lista del sandbox pregunta la primera vez. Lo que el guard no ve (base64, comandos armados en un script) está en <code>tests/test_guard.py</code>.</span><span data-l="en">Work folders allowed outside the repo: <code>~/worktrees</code> (writer) and <code>~/handoffs</code> (plans and handoffs). A host missing from the sandbox list asks the first time. What the guard cannot see (base64, commands built in a script) is listed in <code>tests/test_guard.py</code>.</span></p>
+</section>
+
+<!-- ================= COMANDOS ================= -->
+<section class="blk" id="comandos">
+  <div class="bh"><h2><span data-l="es">Comandos</span><span data-l="en">Commands</span></h2><p><span data-l="es">Desde</span><span data-l="en">From</span> <code>~/Dev/ai-setup</code>.</p></div>
+  <div class="cmds">
+    <div class="cmd"><code>./install.sh</code><span><span data-l="es">Instalar o actualizar en todas las herramientas. Borra las reglas de permisos que ya ningún <code>policy.json</code> genera (las que añadiste a mano se quedan)</span><span data-l="en">Install or update in every tool. Drops permission rules no <code>policy.json</code> generates any more (hand-added ones stay)</span></span></div>
+    <div class="cmd"><code>./install.sh --only core</code><span><span data-l="es">Solo la capa genérica (sin flag repite el último perfil)</span><span data-l="en">Only the generic layer (no flag repeats the last profile)</span></span></div>
+    <div class="cmd"><code>./install.sh --layers-dir DIR --with &lt;layer&gt;</code><span><span data-l="es">Añade una capa guardada en otra carpeta o repo (<code>--layers-dir</code> es repetible y se recuerda)</span><span data-l="en">Add a layer kept in another folder or repo (<code>--layers-dir</code> is repeatable and remembered)</span></span></div>
+    <div class="cmd"><code>./install.sh --uninstall &lt;layer&gt;</code><span><span data-l="es">Quita esa capa de las herramientas (con backup). Elegir menos capas no quita nada</span><span data-l="en">Remove that layer from the tools (with backup). Choosing fewer layers removes nothing</span></span></div>
+    <div class="cmd"><code>./install.sh --dry-run</code><span><span data-l="es">Ver qué cambiaría, sin tocar nada</span><span data-l="en">See what would change, touch nothing</span></span></div>
+    <div class="cmd"><code>python3 -m unittest discover -s tests</code><span><span data-l="es">Tests del setup (guard e instalador). <code>install.sh</code> los corre solo</span><span data-l="en">Setup tests (guard and installer). <code>install.sh</code> runs them itself</span></span></div>
+    <div class="cmd"><code>./install.sh --tools claude,opencode</code><span><span data-l="es">Solo en estas herramientas</span><span data-l="en">Only in these tools</span></span></div>
+    <div class="cmd"><code>./backup.sh [--without &lt;layer&gt;]</code><span><span data-l="es">Zip en ~/Downloads (con <code>.git</code>), verificado. <code>--without &lt;layer&gt;</code> deja fuera esa capa y el <code>.git</code></span><span data-l="en">Zip in ~/Downloads (with <code>.git</code>), verified. <code>--without &lt;layer&gt;</code> leaves that layer and <code>.git</code> out</span></span></div>
+    <div class="cmd"><code>./bootstrap.py [--check | --dry-run] [--layers-dir DIR] [--only core]</code><span><span data-l="es">Mac limpia: instala brew, gh, Claude, OpenCode, LSP (y lo que pida el <code>bootstrap.json</code> de cada capa) y luego <code>install.sh</code>. <code>--check</code> compara esta Mac con los <code>bootstrap.json</code></span><span data-l="en">Clean Mac: installs brew, gh, Claude, OpenCode, LSP (and whatever each layer's <code>bootstrap.json</code> asks for), then <code>install.sh</code>. <code>--check</code> compares this Mac with the <code>bootstrap.json</code> files</span></span></div>
+    <div class="cmd"><code>git diff · git checkout -- &lt;archivo&gt;</code><span><span data-l="es">Ver y deshacer cambios del setup. Para publicar: <code>git push</code> con tu OK, desde una terminal normal</span><span data-l="en">See and undo setup changes. To publish: <code>git push</code> with your OK, from a normal terminal</span></span></div>
+    <div class="cmd"><code>./add-skill.sh &lt;url&gt;</code><span><span data-l="es">Añadir una skill desde GitHub</span><span data-l="en">Add a skill from GitHub</span></span></div>
+    <div class="cmd"><code>claude --bg --agent flow-ticket -w PROJ-123 "…"</code><span><span data-l="es">Ticket en segundo plano, sin Orca</span><span data-l="en">Ticket in the background, without Orca</span></span></div>
+    <div class="cmd"><code>claude agents</code> · <code>claude attach &lt;<span data-l="es">nombre</span><span data-l="en">name</span>&gt;</code><span><span data-l="es">Ver las sesiones en segundo plano · entrar en un gate</span><span data-l="en">List background sessions · step into a gate</span></span></div>
+  </div>
+
+  <h3><span data-l="es">Máquina nueva</span><span data-l="en">New machine</span></h3>
+  <ol class="steps" style="--c:var(--leaf)">
+    <li><div><span data-l="es"><code>git clone https://github.com/sebabottero/ai-setup.git ~/Dev/ai-setup</code> (repo público, sin token). Si tus capas viven en otro repo, clónalo aparte (p. ej. <code>~/Dev/ai-setup-private</code>) y pásalo con <code>--layers-dir</code>. <b>No lo muevas después:</b> los enlaces apuntan a esa ruta.</span><span data-l="en"><code>git clone https://github.com/sebabottero/ai-setup.git ~/Dev/ai-setup</code> (public repo, no token). If your layers live in another repo, clone it separately (e.g. <code>~/Dev/ai-setup-private</code>) and pass it with <code>--layers-dir</code>. <b>Don't move it afterwards:</b> the links point to that path.</span></div></li>
+    <li><div><span data-l="es"><code>xcode-select --install</code> e instala Homebrew (brew.sh). Después <code>./bootstrap.py --dry-run</code> y <code>./bootstrap.py</code> (con tus capas: <code>--layers-dir ~/Dev/ai-setup-private --only core,&lt;layer&gt;</code>): instala brew, Claude, OpenCode, LSP y corre <code>install.sh</code>. Al final imprime los logins que faltan.</span><span data-l="en"><code>xcode-select --install</code> and install Homebrew (brew.sh). Then <code>./bootstrap.py --dry-run</code> and <code>./bootstrap.py</code> (with your layers: <code>--layers-dir ~/Dev/ai-setup-private --only core,&lt;layer&gt;</code>): installs brew, Claude, OpenCode, LSP and runs <code>install.sh</code>. It ends by printing the logins still missing.</span></div></li>
+    <li><div><span data-l="es">Instala Orca a mano y comprueba que <code>~/.agents/skills</code> tiene <code>orca-cli</code> y <code>orchestration</code>.</span><span data-l="en">Install Orca by hand and check that <code>~/.agents/skills</code> has <code>orca-cli</code> and <code>orchestration</code>.</span></div></li>
+    <li><div><span data-l="es">Vuelve a conectar los MCP de cada proyecto (<code>claude mcp add …</code> y después <code>/mcp</code> para el login). El instalador enlaza las notas de tus capas (<code>&lt;layer&gt;/notes/</code>) a <code>~/ai-notes/</code>.</span><span data-l="en">Reconnect each project's MCPs (<code>claude mcp add …</code>, then <code>/mcp</code> to log in). The installer links your layers' notes (<code>&lt;layer&gt;/notes/</code>) to <code>~/ai-notes/</code>.</span></div></li>
+  </ol>
+  <div class="tip"><b class="t"><span data-l="es">Si algo sale mal</span><span data-l="en">If something breaks</span></b><p><span data-l="es">Todo lo que el instalador reemplaza queda antes en <code>~/.ai-setup-backups/&lt;fecha&gt;/</code>.</span><span data-l="en">Everything the installer replaces is first saved in <code>~/.ai-setup-backups/&lt;date&gt;/</code>.</span></p></div>
+</section>
+
+</main>
+
+<footer><div class="wrap"><span data-l="es">ai-setup · licencia MIT</span><span data-l="en">ai-setup · MIT license</span></div></footer>
+
+<script>
+var T={es:{copy:'Copiar',done:'Copiado',sel:'Seleccionado'},en:{copy:'Copy',done:'Copied',sel:'Selected'}};
+function lang(){return document.documentElement.getAttribute('data-lang')==='en'?'en':'es'}
+function setLang(l){
+  var root=document.documentElement;
+  root.setAttribute('data-lang',l);root.setAttribute('lang',l);
+  document.querySelectorAll('.lang button').forEach(function(b){b.setAttribute('aria-pressed',String(b.dataset.set===l))});
+  document.querySelectorAll('.copy').forEach(function(b){b.textContent=T[l].copy});
+  try{localStorage.setItem('cheatsheet-lang',l)}catch(e){}
+}
+document.querySelectorAll('.lang button').forEach(function(b){b.addEventListener('click',function(){setLang(b.dataset.set)})});
+var saved=null;try{saved=localStorage.getItem('cheatsheet-lang')}catch(e){}
+setLang(saved==='en'?'en':'es');
+
+document.querySelectorAll('.copy').forEach(function(btn){
+  btn.addEventListener('click',function(){
+    var pre=[].slice.call(btn.parentNode.querySelectorAll('pre')).filter(function(p){return p.offsetParent!==null})[0];
+    if(!pre)return;
+    var l=lang(),text=pre.innerText.replace(/\s+#.*$/gm,'');
+    var done=function(){btn.textContent=T[l].done;setTimeout(function(){btn.textContent=T[lang()].copy},1500)};
+    var fallback=function(){var r=document.createRange();r.selectNodeContents(pre);var s=getSelection();s.removeAllRanges();s.addRange(r);btn.textContent=T[l].sel};
+    try{navigator.clipboard.writeText(text).then(done,fallback)}catch(e){fallback()}
+  });
+});
+</script>

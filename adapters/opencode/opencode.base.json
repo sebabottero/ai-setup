@@ -1,0 +1,4 @@
+{
+  "_comment": "Defaults that install.py writes to opencode.json only if the key does not exist. Permissions come from core/policy.json.",
+  "share": "disabled"
+}

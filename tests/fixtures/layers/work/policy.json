@@ -1,0 +1,109 @@
+{
+  "_comment": "Test fixture: a work layer with tea/az/Atlassian rules. 'ask' only covers writes: reads go in 'allow'.",
+  "ask_commands": [
+    "tea * create*",
+    "tea * edit*",
+    "tea * update*",
+    "tea * delete*",
+    "tea * close*",
+    "tea * reopen*",
+    "tea * merge*",
+    "tea * approve*",
+    "tea * reject*",
+    "tea * review*",
+    "tea * add*",
+    "tea * remove*",
+    "tea * rm*",
+    "tea * set*",
+    "tea * assign*",
+    "tea * lock*",
+    "tea * unlock*",
+    "tea * clone*",
+    "tea * fork*",
+    "tea * transfer*",
+    "tea * reset*",
+    "tea * sync*",
+    "tea comment *",
+    "tea c *",
+    "tea login*",
+    "tea logout*",
+    "tea api*",
+    "tea pr checkout*",
+    "tea pulls checkout*",
+    "az repos pr create*",
+    "az repos pr update*",
+    "az repos pr set-vote*",
+    "az repos pr reviewer*",
+    "az boards *create*",
+    "az boards *update*",
+    "az boards *delete*"
+  ],
+  "allow_commands": [
+    "tea whoami",
+    "tea --version",
+    "tea * list*",
+    "tea * ls*",
+    "tea * view*",
+    "az repos pr list*",
+    "az repos pr show*",
+    "az boards query*",
+    "az boards work-item show*",
+    "dotnet --info"
+  ],
+  "deny_files": [
+    "appsettings.*.local.json"
+  ],
+  "deny_home_dirs": [
+    "~/.microsoft/usersecrets"
+  ],
+  "ask_mcp_tools": [
+    "atlassian.createJiraIssue",
+    "atlassian.editJiraIssue",
+    "atlassian.transitionJiraIssue",
+    "atlassian.addCommentToJiraIssue",
+    "atlassian.addWorklogToJiraIssue",
+    "atlassian.createIssueLink",
+    "atlassian.createConfluencePage",
+    "atlassian.updateConfluencePage",
+    "atlassian.createConfluenceFooterComment",
+    "atlassian.createConfluenceInlineComment"
+  ],
+  "allow_mcp_tools": [
+    "atlassian.getJiraIssue",
+    "atlassian.searchJiraIssuesUsingJql",
+    "atlassian.getVisibleJiraProjects",
+    "atlassian.getJiraProjectIssueTypesMetadata",
+    "atlassian.getJiraIssueTypeMetaWithFields",
+    "atlassian.getTransitionsForJiraIssue",
+    "atlassian.getJiraIssueRemoteIssueLinks",
+    "atlassian.lookupJiraAccountId",
+    "atlassian.getConfluencePage",
+    "atlassian.getConfluenceSpaces",
+    "atlassian.getPagesInConfluenceSpace",
+    "atlassian.getConfluencePageDescendants",
+    "atlassian.getConfluencePageFooterComments",
+    "atlassian.getConfluencePageInlineComments",
+    "atlassian.getConfluenceCommentChildren",
+    "atlassian.searchConfluenceUsingCql",
+    "atlassian.atlassianUserInfo",
+    "atlassian.getAccessibleAtlassianResources",
+    "atlassian.search",
+    "atlassian.fetch"
+  ],
+  "sandbox": {
+    "weaker_network_isolation": true,
+    "_weaker_network_isolation": "macOS: lets the sandbox use the system certificate service. Without it dotnet restore fails with NU1301 (SSL) even though nuget.org is allowed. If it stops being needed, set it to false.",
+    "allowed_domains": [
+      "api.nuget.org",
+      "*.nuget.org"
+    ],
+    "allow_write": [
+      "~/.nuget",
+      "~/.local/share/NuGet",
+      "~/.dotnet"
+    ],
+    "unsandboxed_commands": [
+      "tea *"
+    ]
+  }
+}
