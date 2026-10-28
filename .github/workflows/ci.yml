@@ -10,8 +10,14 @@ permissions:
 
 jobs:
   test:
-    # The installer and its tests target macOS (see README: Install).
-    runs-on: macos-latest
+    # The installer targets macOS (see README: Install). Ubuntu is informational until its tests are proven green.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    continue-on-error: ${{ matrix.os == 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
