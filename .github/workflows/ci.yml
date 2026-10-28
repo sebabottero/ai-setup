@@ -10,15 +10,10 @@ permissions:
 
 jobs:
   test:
-    # Ubuntu is the gate: it is fast and always available. The installer targets macOS (see README: Install), so the macOS
-    # run stays as a check, but hosted macOS runners are sometimes not assigned, so it cannot block.
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
+    # Ubuntu is the gate: it is fast and always available. The macOS run lives in ci-macos.yml so a hosted macOS runner
+    # that is never assigned cannot turn this workflow (and its README badge) red.
+    runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

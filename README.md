@@ -1,6 +1,7 @@
 # ai-setup
 
 [![CI](https://github.com/sebabottero/ai-setup/actions/workflows/ci.yml/badge.svg)](https://github.com/sebabottero/ai-setup/actions/workflows/ci.yml)
+[![CI macOS](https://github.com/sebabottero/ai-setup/actions/workflows/ci-macos.yml/badge.svg)](https://github.com/sebabottero/ai-setup/actions/workflows/ci-macos.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **AI coding agents can run `git push`, `rm -rf` or read your SSH keys. This makes them ask first, with the same rules in Claude Code and OpenCode.**
