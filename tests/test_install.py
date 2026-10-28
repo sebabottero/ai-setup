@@ -37,6 +37,7 @@ class Install(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(self.home, ".claude", "hooks", "policy_guard.py")))
         self.assertEqual(s["permissions"]["defaultMode"], "auto")
         self.assertEqual(s["model"], "opusplan")  # Opus to plan, Sonnet to execute
+        self.assertEqual(s["env"]["CLAUDE_CODE_SUBAGENT_MODEL"], "sonnet")  # general-purpose does not inherit Opus
         self.assertIn("\neffort: high\n", self.text(".claude", "agents", "sub-review.md"))
         self.assertIn("\neffort: low\n", self.text(".claude", "agents", "leaf-verify.md"))
         self.assertNotIn("effort:", self.text(".claude", "agents", "sub-tester.md"))

@@ -365,6 +365,9 @@ def install_claude(agents_md):
     pol = policy()
     perms = settings.setdefault("permissions", {})
     perms.setdefault("defaultMode", "auto")  # a classifier reviews actions; bypass skips every check but the hook
+    # subagents without their own model (general-purpose, claude-code-guide) would inherit the strong session model;
+    # our agents set `model` in their frontmatter, which wins over this variable
+    settings.setdefault("env", {}).setdefault("CLAUDE_CODE_SUBAGENT_MODEL", "sonnet")
     add_hook(settings, "PreToolUse", "Bash|mcp__.*", "policy_guard.py", 10)
     add_hook(settings, "UserPromptSubmit", None, "context_notice.py", 5)  # informational context-size notice
 

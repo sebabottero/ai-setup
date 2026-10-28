@@ -94,7 +94,7 @@ earlier that no layer produces any more. Rules you added by hand stay.
 | Ask for OK / forbid (guard) | PreToolUse hook → `core/guard` | `permission.evaluate` plugin → `core/guard` (beta API: after updating, check that `git push` asks) | ❌ |
 | OS-level wall | native `sandbox`: secrets, network, writes | ❌ (rules + guard only) | ❌ |
 | Protect its own rules | `Edit` asks for OK + sandbox `denyWrite` | `edit` asks for OK + guard | ❌ |
-| Models | `tier` → opus / sonnet / haiku + `effort` | `tiers.json` → any provider | — |
+| Models | `tier` → opus / sonnet / haiku + `effort`; subagents without a tier (`general-purpose`) run on Sonnet | `tiers.json` → any provider | — |
 
 ## Structure
 | Path | What it is |
