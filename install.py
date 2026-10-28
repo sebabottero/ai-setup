@@ -20,6 +20,7 @@ import argparse, datetime, json, os, re, shutil, sys
 ROOT = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(ROOT, "core", "guard"))
 import layers as layerlib
+import guard
 
 CORE = os.path.join(ROOT, "core")
 ADAPTERS = os.path.join(ROOT, "adapters")
@@ -190,6 +191,13 @@ def sources(kind, tool, layer_names=None):
     return found
 
 
+def edit_globs(glob):
+    """One `edit:` entry as globs. {{LAYERS}} stands for every folder given with --layers-dir (none: no entry)."""
+    if "{{LAYERS}}" in glob:
+        return [expand(glob.replace("{{LAYERS}}", r)) for r in layerlib.EXTRA_ROOTS]
+    return [expand(glob)]
+
+
 def agents(tool):
     """Canonical agents. Frontmatter: name, description, mode (subagent|primary|all), tier (strong|balanced|fast),
     color, claude_tools (comma list or *), edit (none | all | comma list of path globs), bash (read-only | checks | all),
@@ -198,8 +206,9 @@ def agents(tool):
     for path in sources("agents", tool).values():
         meta, body = parse_agent(path)
         edit = meta.get("edit", "none")
-        meta["edit_globs"] = [] if edit in ("none", "all") else [expand(g.strip()) for g in edit.split(",")]
-        result.append((meta, body.replace("{{AI_SETUP}}", ROOT)))
+        meta["edit_globs"] = [] if edit in ("none", "all") else [e for g in edit.split(",") for e in edit_globs(g.strip())]
+        folder = os.path.dirname(os.path.dirname(path))  # <layer>/agents/x.md -> the layer's own folder
+        result.append((meta, body.replace("{{LAYER}}", folder).replace("{{AI_SETUP}}", ROOT)))
     return result
 
 
@@ -610,6 +619,31 @@ def run_uninstall(tools):
     save_profile()
 
 
+def lint_policy(pol):
+    """Problems in the composed policy of the chosen layers, checked before anything is written: a layer outside this repo
+    is not covered by the tests, so the installer checks the same invariants. Returns a list of messages."""
+    problems = []
+    asks = pol.get("ask_commands", [])
+
+    def decide(command):
+        return guard.decide({"tool": "bash", "command": command, "cwd": "/tmp"}, pol)[0]
+
+    for allow in pol.get("allow_commands", []):
+        if allow in asks:
+            problems.append(f"allow_commands and ask_commands both list '{allow}'")
+        elif decide(allow.replace("*", "x")) != "allow":
+            problems.append(f"allow_commands '{allow}' does not run without asking: another rule wins")
+    for ask in asks:
+        if decide(ask.replace("*", "x")) not in ("ask", "deny"):
+            problems.append(f"ask_commands '{ask}' would not ask: it is allowed by another rule")
+    for tool in pol.get("allow_mcp_tools", []):
+        if tool in pol.get("ask_mcp_tools", []):
+            problems.append(f"allow_mcp_tools and ask_mcp_tools both list '{tool}'")
+        if "*" in tool:
+            problems.append(f"allow_mcp_tools '{tool}': no wildcards, list each read-only tool")
+    return problems
+
+
 def detected():
     found = []
     for tool, conf in [("claude", ".claude"), ("opencode", ".config/opencode"), ("codex", ".codex")]:
@@ -649,6 +683,9 @@ def main():
         print("\ndone." + (" (nothing changed: this was a dry run)" if args.dry_run else ""))
         return
     SELECTED[:] = resolve_layers()
+    problems = lint_policy(policy())
+    if problems:
+        sys.exit("the composed policy has problems, nothing was installed:\n  " + "\n  ".join(problems))
     print(f"ai-setup: {ROOT}\nhome: {HOME}\ntools: {', '.join(tools) or 'none found'}\nlayers: {', '.join(SELECTED)}\n")
     agents_md = build_agents_md()
     build_policy()

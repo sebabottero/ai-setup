@@ -42,6 +42,8 @@
 | `adapters/<tool>/` accepts its own skills, agents, hooks and plugins | Tune each tool without breaking the common contract |
 | Layers only add, never remove a rule | A private layer can tighten the policy but never loosen the shared one |
 | `core` always comes from this repo; `--layers-dir` cannot shadow it | An external folder cannot replace the rules that guard everything else |
+| A layer outside the repo is protected like one inside | Its `policy.json` can add `allow` rules: editing it asks for OK |
+| The installer checks the composed policy before writing | The tests of this repo cannot see your private layers |
 | Third-party skills are not bundled | Their license and updates stay with their authors: `./add-skill.sh <url>` |
 
 ---
@@ -88,4 +90,6 @@
 | `adapters/<herramienta>/` acepta sus propias skills, agentes, hooks y plugins | Ajusta cada herramienta sin romper el contrato común |
 | Las capas solo suman, nunca quitan una regla | Una capa privada puede endurecer la policy pero nunca aflojar la compartida |
 | `core` siempre sale de este repo; `--layers-dir` no puede taparlo | Una carpeta externa no puede sustituir las reglas que protegen todo lo demás |
+| Una capa fuera del repo se protege igual que una de dentro | Su `policy.json` puede añadir reglas `allow`: editarla pide OK |
+| El instalador revisa la política compuesta antes de escribir | Los tests de este repo no ven tus capas privadas |
 | Las skills de terceros no se incluyen | Su licencia y sus actualizaciones se quedan con sus autores: `./add-skill.sh <url>` |

@@ -260,6 +260,50 @@ class ExternalLayers(unittest.TestCase):
         self.assertFalse(os.path.lexists(link))
         self.assertFalse(os.path.lexists(os.path.join(self.home, "ai-notes", "repo.md")))
 
+    def test_layer_placeholder_resolves_to_the_layer_folder(self):
+        real = os.path.realpath(self.extra)
+        with open(os.path.join(self.extra, "acme", "AGENTS.md"), "w") as f:
+            f.write("rules in {{LAYER}}/skills and engine in {{AI_SETUP}}")
+        os.makedirs(os.path.join(self.extra, "acme", "agents"))
+        with open(os.path.join(self.extra, "acme", "agents", "acme-agent.md"), "w") as f:
+            f.write("---\nname: acme-agent\ndescription: d\nmode: subagent\nedit: none\nbash: read-only\n"
+                    "claude_tools: Read\ntier: fast\ncolor: red\n---\nsee {{LAYER}}/notes\n")
+        self.assertEqual(self.go("--layers-dir", self.extra, "--with", "acme").returncode, 0)
+        with open(os.path.join(self.build, "AGENTS.md")) as f:
+            text = f.read()
+        self.assertIn(f"rules in {real}/acme/skills", text)
+        self.assertNotIn("{{LAYER}}", text)
+        self.assertIn(f"engine in {ROOT}", text)
+        with open(os.path.join(self.home, ".claude", "agents", "acme-agent.md")) as f:
+            self.assertIn(f"see {real}/acme/notes", f.read())
+
+    def test_policy_of_external_layers_is_protected(self):
+        real = os.path.realpath(self.extra)
+        layers.set_extra_roots([self.extra])
+        try:
+            self.assertIn(f"{real}/*/policy.json", layers.compose_policy(ROOT, ["core", "acme"])["protected_paths"])
+        finally:
+            layers.set_extra_roots([])
+        self.assertEqual(self.go("--layers-dir", self.extra, "--with", "acme").returncode, 0)
+        with open(os.path.join(self.home, ".claude", "settings.json")) as f:
+            asks = json.load(f)["permissions"]["ask"]
+        self.assertTrue([a for a in asks if a.startswith("Edit(") and real in a and a.endswith("policy.json)")], asks)
+
+    def test_meta_setup_may_edit_the_external_layers(self):
+        real = os.path.realpath(self.extra)
+        self.assertEqual(self.go("--layers-dir", self.extra, "--with", "acme").returncode, 0)
+        with open(os.path.join(self.home, ".claude", "agents", "meta-setup.md")) as f:
+            self.assertIn(f"`{real}/*`", f.read())
+
+    def test_install_refuses_a_policy_where_allow_overlaps_ask(self):
+        os.makedirs(os.path.join(self.extra, "bad"))
+        with open(os.path.join(self.extra, "bad", "policy.json"), "w") as f:
+            json.dump({"allow_commands": ["bad deploy*"], "ask_commands": ["bad deploy*"]}, f)
+        out = self.go("--layers-dir", self.extra, "--with", "bad")
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("bad deploy", out.stderr)
+        self.assertFalse(os.path.exists(os.path.join(self.home, ".claude", "settings.json")))  # nothing was installed
+
     def test_missing_folder_fails_clearly(self):
         out = self.go("--layers-dir", os.path.join(self.extra, "nope"))
         self.assertNotEqual(out.returncode, 0)

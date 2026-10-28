@@ -93,7 +93,13 @@ def read_policy(root, layer):
 
 
 def compose_policy(root, layers):
-    return merge_policies([read_policy(root, l) for l in layers])
+    """The merged policy of the layers. A layer kept outside this repo adds permissions too, so its policy.json is
+    protected like the ones inside: editing it asks for OK."""
+    policy = merge_policies([read_policy(root, l) for l in layers])
+    outside = [os.path.join(r, "*", "policy.json") for r in roots(root)[1:]]
+    if outside:
+        policy["protected_paths"] = policy.get("protected_paths", []) + [p for p in outside if p not in policy.get("protected_paths", [])]
+    return policy
 
 
 def compose_agents_md(root, layers):
@@ -102,5 +108,6 @@ def compose_agents_md(root, layers):
         path = os.path.join(layer_dir(root, layer), "AGENTS.md")
         if os.path.isfile(path):
             with open(path) as f:
-                parts.append(f"<!-- ai-setup: layer {layer}; if it clashes with an earlier layer, this one wins -->\n" + f.read().strip())
+                parts.append(f"<!-- ai-setup: layer {layer}; if it clashes with an earlier layer, this one wins -->\n"
+                             + f.read().strip().replace("{{LAYER}}", layer_dir(root, layer)))  # a layer's own folder
     return "\n\n".join(parts).replace("{{AI_SETUP}}", root) + "\n"

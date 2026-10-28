@@ -40,6 +40,11 @@ Reserved names: `adapters`, `docs`, `tests`, `build`. Layers only **add**: a lay
   A new layer is never installed unasked. Choosing fewer layers **removes nothing**.
 - `./bootstrap.py --layers-dir DIR` does the same on a clean Mac, using each layer's `bootstrap.json`.
 - `./add-skill.sh --layer <name>` writes into that layer's real folder, wherever it lives.
+- In a layer's `AGENTS.md` and agents, write `{{LAYER}}` for the layer's own folder (`{{AI_SETUP}}` is this repo).
+- A layer's `policy.json` can loosen permissions (`allow_*`), so editing it asks for OK, wherever the layer lives.
+  `meta-setup` may edit the layer folders.
+- Before writing anything, `install.sh` checks the composed policy (nothing both allowed and asked, every allowed command
+  really runs without asking) and stops with the offending rule. Your layers are not covered by this repo's tests, so this is their check.
 
 ## How it works
 - **`core/`** works for any model and tool. **`adapters/<tool>/`** is what makes each tool work at its best (hooks, plugins,
