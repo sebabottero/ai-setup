@@ -3,7 +3,7 @@
 from build/policy.json (composed from the installed layers). Each adapter only translates its tool's hook format to this one.
 
   stdin:  {"tool": "bash", "command": "..."}   or   {"tool": "mcp", "name": "server.tool"}
-  stdout: {"decision": "allow" | "ask" | "deny", "reason": "..."}
+  stdout: {"decision": "allow" | "ask" | "deny", "reason": "..."}   (reason of an ask / deny starts with a risk label)
 
 A regex over shell text is a seatbelt, not a wall: obfuscated commands (base64, string concatenation in a
 script) get through. The OS sandbox (Claude: core/policy.json "sandbox") is the wall; this adds the asks the
@@ -34,6 +34,24 @@ MAX_DEPTH = 3
 PIPE_TO_SHELL = re.compile(r"\|\s*(?:sudo\s+)?(?:ba|z)?sh(?:\s+-s)?\s*(?:$|[;&|)])")  # curl ... | sh: runs text nobody read
 INLINE_CODE = re.compile(r"\b(?:python3?|node|ruby|perl)\s+(?:(?:-\S+\s+)*-[ce]\b|-?\s*<<)")  # -c / -e, or a heredoc
 RUNS_COMMANDS = re.compile(r"subprocess|\bos\.(?:system|popen|exec\w*|spawn\w*)|child_process|execSync|spawnSync|\bsystem\(|\bpopen\(|\bexec\(")
+# risk shown at the start of every ask / deny reason, by the rule that decided; a rule not listed is medium.
+# The guard only labels what it asks about, so there is no low: an allowed command carries no label.
+HIGH_RISK = {"secret", "secret-glob", "protected_paths", "pipe-to-shell", "rm-outside-tmp", "git push *", "git push --force*",
+             "git push -f*", "git reset --hard*", "git clean *", "git rebase *", "git restore *", "git checkout -- *",
+             "git branch -D *", "git stash drop*", "git stash clear*", "git worktree remove*", "git update-ref*",
+             "git commit-tree*", "rm -rf *", "rm -fr *", "gh pr merge*", "gh release create*"}
+
+
+def risk_of(decision, rule):
+    return "high" if decision == "deny" or rule in HIGH_RISK else "medium"
+
+
+def labelled(decision, reason, rule):
+    """'🔴 high risk: ...' / '🟡 medium risk: ...' in front of the reason of an ask or deny."""
+    if decision == "allow":
+        return reason
+    risk = risk_of(decision, rule)
+    return f"{'🔴' if risk == 'high' else '🟡'} {risk} risk: {reason}"
 
 
 def load():
@@ -242,6 +260,7 @@ def log_decision(tool, decision, rule):
 def decide(event, policy=None, log=False):
     """(decision, reason). log=True is for the adapters that answer a real agent; tests and callers stay quiet."""
     decision, reason, rule = judge(event, policy or load())
+    reason = labelled(decision, reason, rule)
     if log:
         log_decision(event.get("tool", "?"), decision, rule)
     return decision, reason

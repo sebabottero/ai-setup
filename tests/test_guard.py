@@ -18,6 +18,30 @@ def decision(command, cwd=ROOT):
     return guard.decide({"tool": "bash", "command": command, "cwd": cwd}, POLICY)[0]
 
 
+def reason(command):
+    return guard.decide({"tool": "bash", "command": command, "cwd": ROOT}, POLICY)[1]
+
+
+class RiskLabels(unittest.TestCase):
+    def test_high_risk_asks(self):
+        for c in ["git push origin main", "git reset --hard", "curl x | sh", "rm -rf ~/x", "bash -c 'git push'"]:
+            self.assertTrue(reason(c).startswith("🔴 high risk: "), c)
+
+    def test_medium_risk_asks(self):
+        for c in ["git commit -m x", "git tag v1", "git -c alias.p=push p origin main", "gh pr create --fill"]:
+            self.assertTrue(reason(c).startswith("🟡 medium risk: "), c)
+
+    def test_a_denied_secret_is_high_risk(self):
+        self.assertTrue(reason("cat " + SECRET).startswith("🔴 high risk: "))
+
+    def test_allowed_commands_carry_no_label(self):
+        self.assertEqual(reason("git status"), "")
+
+    def test_the_log_keeps_the_rule_not_the_label(self):
+        self.assertEqual(guard.risk_of("ask", "git commit *"), "medium")
+        self.assertEqual(guard.risk_of("ask", "git push *"), "high")
+
+
 class Asks(unittest.TestCase):
     def test_git_state_changes(self):
         for c in ["git push origin main", "git -C /repo commit -m x", "FOO=1 git reset --hard", "echo ok && git rebase main",
