@@ -18,7 +18,9 @@ def main():
     event = json.load(sys.stdin)
     tool = event.get("tool_name", "")
     if tool == "Bash":
-        ask = {"tool": "bash", "command": event.get("tool_input", {}).get("command", ""), "cwd": event.get("cwd")}
+        given = event.get("tool_input", {})
+        ask = {"tool": "bash", "command": given.get("command", ""), "cwd": event.get("cwd"),
+               "unsandboxed": given.get("dangerouslyDisableSandbox") is True}
     elif tool.startswith("mcp__"):
         _, server, name = tool.split("__", 2)
         ask = {"tool": "mcp", "name": f"{server}.{name}"}

@@ -50,6 +50,39 @@ class RiskLabels(unittest.TestCase):
         self.assertEqual(guard.risk_of("ask", "git push *"), "high")
 
 
+class OutsideSandbox(unittest.TestCase):
+    def judge(self, command, unsandboxed=True):
+        return guard.decide({"tool": "bash", "command": command, "cwd": ROOT, "unsandboxed": unsandboxed}, POLICY)
+
+    def test_leaving_the_sandbox_always_asks_and_is_high_risk(self):
+        decision, reason = self.judge("touch ~/x")
+        self.assertEqual(decision, "ask")
+        self.assertTrue(reason.startswith("🔴 high risk: "))
+        self.assertIn("outside the sandbox", reason)
+
+    def test_the_commands_own_reason_is_kept(self):
+        decision, reason = self.judge("git commit -m x")
+        self.assertEqual(decision, "ask")
+        self.assertIn("git commit", reason)
+
+    def test_inside_the_sandbox_nothing_changes(self):
+        self.assertEqual(self.judge("touch ~/x", unsandboxed=False), ("allow", ""))
+
+    def test_a_denied_secret_stays_denied(self):
+        self.assertEqual(self.judge("cat " + SECRET)[0], "deny")
+
+    def test_the_log_names_the_rule(self):
+        self.assertEqual(guard.judge({"tool": "bash", "command": "ls", "unsandboxed": True}, POLICY)[2], "outside-sandbox")
+
+    def test_claude_hook_passes_the_flag(self):
+        run = lambda extra: subprocess.run([sys.executable, "-I", os.path.join(ROOT, "adapters", "claude", "hooks", "policy_guard.py")],
+                                            input='{"tool_name": "Bash", "tool_input": {"command": "ls"%s}}' % extra,
+                                            capture_output=True, text=True).stdout
+        self.assertIn("outside the sandbox", run(', "dangerouslyDisableSandbox": true'))
+        self.assertEqual(run(""), "")
+        self.assertEqual(run(', "dangerouslyDisableSandbox": false'), "")
+
+
 class Asks(unittest.TestCase):
     def test_git_state_changes(self):
         for c in ["git push origin main", "git -C /repo commit -m x", "FOO=1 git reset --hard", "echo ok && git rebase main",

@@ -2,7 +2,7 @@
 """Policy guard shared by every tool: decides allow / ask / deny for a shell command or an MCP tool
 from build/policy.json (composed from the installed layers). Each adapter only translates its tool's hook format to this one.
 
-  stdin:  {"tool": "bash", "command": "..."}   or   {"tool": "mcp", "name": "server.tool"}
+  stdin:  {"tool": "bash", "command": "...", "unsandboxed": true?}   or   {"tool": "mcp", "name": "server.tool"}
   stdout: {"decision": "allow" | "ask" | "deny", "reason": "..."}   (reason of an ask / deny starts with a risk label)
 
 A regex over shell text is a seatbelt, not a wall: obfuscated commands (base64, string concatenation in a
@@ -36,7 +36,7 @@ INLINE_CODE = re.compile(r"\b(?:python3?|node|ruby|perl)\s+(?:(?:-\S+\s+)*-[ce]\
 RUNS_COMMANDS = re.compile(r"subprocess|\bos\.(?:system|popen|exec\w*|spawn\w*)|child_process|execSync|spawnSync|\bsystem\(|\bpopen\(|\bexec\(")
 # risk shown at the start of every ask / deny reason, by the rule that decided; a rule not listed is medium.
 # The guard only labels what it asks about, so there is no low: an allowed command carries no label.
-HIGH_RISK = {"secret", "secret-glob", "protected_paths", "pipe-to-shell", "rm-outside-tmp", "git push *", "git push --force*",
+HIGH_RISK = {"outside-sandbox", "secret", "secret-glob", "protected_paths", "pipe-to-shell", "rm-outside-tmp", "git push *", "git push --force*",
              "git push -f*", "git reset --hard*", "git clean *", "git rebase *", "git restore *", "git checkout -- *",
              "git branch -D *", "git stash drop*", "git stash clear*", "git worktree remove*", "git update-ref*",
              "git commit-tree*", "rm -rf *", "rm -fr *", "gh pr merge*", "gh release create*"}
@@ -239,7 +239,11 @@ def bash(command, policy, cwd=None, depth=0):
 
 def judge(event, policy):
     if event.get("tool") == "bash":
-        return bash(event.get("command", ""), policy, event.get("cwd"))
+        decision, reason, rule = bash(event.get("command", ""), policy, event.get("cwd"))
+        if event.get("unsandboxed") and decision != "deny":  # the call asked to leave the OS sandbox: always the user's call
+            note = "asks to run outside the sandbox, which removes the OS wall: confirm"
+            return "ask", f"{note}. Also: {reason}" if decision == "ask" else note, "outside-sandbox"
+        return decision, reason, rule
     for pattern in policy["ask_mcp_tools"] if event.get("tool") == "mcp" else ():
         if fnmatch.fnmatchcase(event.get("name", ""), pattern):
             return "ask", f"{event['name']} changes shared data: needs your explicit OK", pattern
