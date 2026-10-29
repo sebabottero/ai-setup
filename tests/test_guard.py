@@ -100,7 +100,9 @@ class Asks(unittest.TestCase):
 
     def test_platform_writes(self):
         for c in ["gh pr merge 12 --squash", "gh pr create --fill", "az boards work-item update --id 1 --state Done",
-                  "az repos pr create --title x", "tea pr create"]:
+                  "az repos pr create --title x", "tea pr create", "gh api -X POST repos/o/r/git/refs",
+                  "gh repo delete o/r --yes", "gh release delete v1", "gh workflow run ci.yml", "gh secret set X",
+                  "gh auth refresh", "gh gist create f"]:
             self.assertEqual(decision(c), "ask", c)
 
     def test_globs_that_could_expand_to_a_secret(self):
