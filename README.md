@@ -181,6 +181,58 @@ Third-party skills are not bundled, to keep their licenses and updates with thei
 Your layers are in your own repo: commit and push there. `./backup.sh [--without <folder>] [target]` makes a verified zip of this
 folder in `~/Downloads`; layers kept in another folder are not in it.
 
+## Extending it
+Put your own rules in a layer (a folder with the files below); `core/` stays untouched and a layer only **adds**. Then run `./install.sh --with <layer>` and open a new session (the guard reads `build/policy.json` at start).
+
+### Add a permission rule
+`<layer>/policy.json`; every key is optional:
+```json
+{ "ask_commands": ["gh api *", "terraform apply*"], "allow_commands": ["terraform plan*"] }
+```
+| Key | What it does |
+|---|---|
+| `ask_commands` | Shell commands that need your OK. Globs: `*` matches anything. |
+| `allow_commands` | Shell commands that run without asking (keep them read-only). |
+| `deny_files` / `deny_home_dirs` | Secrets that are never read (file name globs, home folders). |
+| `protected_paths` | Files the agent cannot edit without asking (use `{{AI_SETUP}}` for this repo). |
+| `ask_mcp_tools` | MCP tools (`server.tool`, globs) that ask first. |
+| `work_dirs` | Extra folders the agent may work in. |
+| `sandbox` | `allowed_domains`, `allow_write`, `unsandboxed_commands`, `allow_unsandboxed_commands` (Claude only). |
+
+`ask` and `deny` always win over `allow`. `install.sh` checks the composed policy and stops with the offending rule. Editing a `policy.json` asks for your OK because it can loosen permissions.
+A rule for **everyone** (not just you) goes in `core/policy.json` with a test in `tests/test_guard.py`; see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### Add an agent
+`<layer>/agents/<name>.md`: a frontmatter, then the prompt.
+```markdown
+---
+name: security-auditor
+description: Read-only security review of a diff. Use before a merge.
+edit: none
+bash: read-only
+claude_tools: Read, Grep, Glob, Bash
+tier: balanced
+effort: medium
+color: red
+---
+You review code for security problems and never edit files. ...
+```
+| Field | Values |
+|---|---|
+| `name`, `description` | Required. The description is what decides when the agent is picked. |
+| `mode` | `subagent` (default), `primary` or `all`. |
+| `tier` | `strong`, `balanced` or `fast`: which model it runs on (see below). |
+| `effort` | `low`, `medium`, `high`, `xhigh`. Claude applies it; OpenCode ignores it for now. |
+| `edit` | `none` (default), `all`, or a comma list of path globs it may write. |
+| `bash` | `read-only`, `checks` (builds and tests, no git changes) or `all`. |
+| `claude_tools` | Comma list of Claude tools, or `*`. |
+| `color` | `yellow green blue purple red orange cyan gray`. |
+
+In OpenCode the config enforces `edit` and `bash`; in Claude Code the prompt does. A layer agent cannot reuse a `core` name: the install stops.
+
+### Change the models
+`tier` is mapped per tool. Claude: `strong` = opus, `balanced` = sonnet, `fast` = haiku (`CLAUDE_MODELS` in `install.py`). OpenCode: fill `adapters/opencode/tiers.json` with `provider/model` per tier (empty = the session's model), or use `overrides` to move one agent to another tier.
+
 ## Changing something
 1. Edit `core/…` or `adapters/<tool>/…`  2. `./install.sh`  3. Commit.
 Options: `./install.sh --tools claude,opencode` · `--dry-run` · `--home <dir>` (install into another folder, to test).
