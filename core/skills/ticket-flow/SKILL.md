@@ -39,7 +39,7 @@ In the same turn:
 - the project notes (`~/ai-notes/<repo>.md`) and the repo's rules (CLAUDE.md / AGENTS.md / CONTRIBUTING);
 - 2 or 3 Explore subagents with narrow questions: where the logic lives, the current flow end to end, existing tests and docs.
 
-Task type: **feature** (design first) · **edit** (current flow first: extend, do not duplicate) · **bug** (reproduction first).
+Task type: **feature** (design before code) · **edit** (trace today's flow, then extend it, no duplicates) · **bug** (reproduce it before fixing).
 If the ticket is vague, use the `grillme` skill before the plan.
 
 ## 1 · Plan
@@ -73,7 +73,7 @@ goal, the contract's allowlist (reject what falls outside), out of scope, how to
 
 ## ⛔ GATE 2: handover
 A single message with:
-1. **Receipt:** what changed · what ran · what happened · what failed · what is uncertain.
+1. **Receipt:** changes made · commands run · their outcome · failures · open doubts.
 2. Acceptance criteria: ✅ / 🟡 / ❌ with evidence.
 3. Draft PR description (in the format of earlier PRs; use your writing skill if you have one).
 4. Pending items and extras found, split into "in scope" and "extras".

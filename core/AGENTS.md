@@ -3,7 +3,7 @@
 ## Limits (the configuration enforces them; this explains why)
 - Commit, push, tags, merges and writes to trackers or wikis (tickets, comments, pages): always with my explicit OK.
 - Do not read or copy secrets (`.env.local`, `~/.ssh`, `~/.aws`), not even through the shell.
-- Do not weaken asserts, skip failing tests or change the expected behavior to make something pass.
+- Never turn a red check green by loosening an assertion, skipping the test or redefining the expected result.
 - Stage only concrete paths (`git add <paths>`, never `-A` or `.`): other sessions may be working in the same repo.
   Before suggesting or running a push, run `git remote -v` and confirm the destination with me.
 - Nothing that is mine (these notes, prompts, plans) is stored inside the work repo unless I ask for it.
@@ -12,18 +12,18 @@
 
 ## How to work
 - Before executing: goal, success criteria and **what is out of scope**. If something is missing, ask.
-- New feature → design first. Editing a feature → map the current flow first: extend, do not duplicate, and remove
-  what is left unused. Rewriting → first the contract (behavior, invariants) and tests that protect it.
-  Bug → a reproduction and a test that fails for the right reason before the fix.
+- New feature → sketch the design before any code. Changing an existing one → trace how it works today, extend that
+  path instead of adding a second one, and delete what ends up unused. Rewrite → pin down the behavior and invariants
+  first, with tests that guard them. Bug → reproduce it with a test that fails for the right reason, then fix.
 - **Only one session or agent writes** in each worktree. Only what reads runs in parallel: searches, reviews, checks.
 - Do not touch files outside the scope. If needed, propose it as a separate change.
 - Work without asking me while it is local, reversible and verifiable. Stop only at the gates (plan approval, an ambiguous
   or irreversible decision, scope change, commit / push / merge / tracker writes) and put all questions in one message.
-- Close every task with a **receipt**: what changed · what ran · what happened · what failed · what is uncertain.
+- Close every task with a **receipt**: changes made · commands run · their outcome · failures · open doubts.
   Then suggest `/rename` + `/clear`. If I corrected the same thing twice in a session, suggest `/clear` and a better prompt.
 - If a global install (`npm -g`), a write to `~/.claude` or the regeneration of `build/AGENTS.md` fails because of
   the sandbox, stop and give me the exact command with a `! ` prefix instead of retrying. After `claude mcp add`, remind me to restart the session.
-- Pick the cheapest model that is reliable; high effort only for hard diagnoses.
+- Start with the lowest-cost model that does the job dependably; reserve high effort for hard diagnoses.
 - ai-setup's `docs/cheatsheet.html` weighs ~17k tokens: do not read it whole, use `grep -n` and edit only the piece.
   Every change to ai-setup (rules, agents, skills, policy) updates the cheatsheet in the same commit.
 

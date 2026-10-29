@@ -38,7 +38,7 @@ The other session cannot see this conversation: everything it needs goes in the 
 - <checks to run; use the validate skill or the leaf-verify agent>
 
 ## Expected delivery
-Receipt: what changed · what ran · what happened · what failed · what is uncertain.
+Receipt: changes made · commands run · their outcome · failures · open doubts.
 ```
 
 Before handing it over, check that it makes sense without having read this conversation.
