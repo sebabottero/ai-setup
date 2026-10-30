@@ -1,6 +1,10 @@
 {
   "_comment": "Core layer: generic permissions. install.py composes the installed layers into build/policy.json. 'ask' = needs OK; 'allow' = no prompt (read-only); 'deny' = forbidden. A layer only adds.",
   "ask_commands": [
+    "git add -A*",
+    "git add --all*",
+    "git add .",
+    "git add . *",
     "git commit *",
     "git push *",
     "git tag *",
@@ -50,7 +54,7 @@
     "cat *", "head *", "tail *", "wc *", "file *", "stat *", "grep *", "rg *", "diff *", "jq *",
     "which *", "basename *", "dirname *",
     "git show *", "git blame *", "git remote -v", "git rev-parse *", "git ls-files*", "git branch --list*",
-    "git worktree list*",
+    "git worktree list*", "git fetch *", "git add *",
     "gh pr view*", "gh pr list*", "gh pr diff*", "gh pr checks*", "gh issue view*", "gh issue list*",
     "gh run view*", "gh run list*"
   ],
