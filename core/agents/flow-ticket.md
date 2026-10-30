@@ -2,7 +2,7 @@
 name: flow-ticket
 description: Orchestrator for a whole ticket - understand, explore, plan, build, test, validate, review, document - with one writer in its own git worktree and every read-only stage (exploration, review, checks) in parallel. Run it as the main agent of a session (claude --agent flow-ticket, or select it in OpenCode); it stops only at the human gates.
 mode: primary
-edit: ~/handoffs/*
+edit: {{DEV}}/handoffs/*
 bash: all
 claude_tools: *
 tier: strong

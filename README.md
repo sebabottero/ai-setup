@@ -88,7 +88,7 @@ Reserved names: `adapters`, `docs`, `tests`, `build`. Layers only **add**: a lay
 | Layer | What it is |
 |---|---|
 | `core/` | Generic: limits, way of working, agents, skills, permission policy. Always installed. |
-| `<yours>/` | Optional: language, tone, work tools, notes for one repo (`notes/*.md` are linked to `~/ai-notes/`). |
+| `<yours>/` | Optional: language, tone, work tools, notes for one repo (`notes/*.md` are linked to `$DEV/ai-notes/`; `$DEV` is the `dev_root` a layer sets in its `policy.json`, `~` by default). |
 
 ### Keep your layers in another repo
 ```bash
@@ -149,7 +149,7 @@ earlier that no layer produces any more. Rules you added by hand stay.
 ## Agents
 | Agent | Role | Writes |
 |---|---|---|
-| `flow-ticket` | Orchestrates a whole ticket with the `ticket-flow` skill. Main session | only plans in `~/handoffs` |
+| `flow-ticket` | Orchestrates a whole ticket with the `ticket-flow` skill. Main session | only plans in `$DEV/handoffs` |
 | `sub-review` | Skeptical review against requirements | ❌ |
 | `sub-builder` | The one writer: implements the approved plan and the docs in the worktree | the allowlist only |
 | `sub-tester` | Tests: a failing regression test (bug) or feature cases | tests only |

@@ -37,7 +37,7 @@
   Then read its `SKILL.md` and scripts and tell me in 3 lines what it does and whether anything looks off (network, secrets, deleting files).
 
 ## Notes per project
-Before starting in a repo, check whether `~/ai-notes/<repo-name>.md` exists and, if it does, read it:
+Before starting in a repo, check whether `{{DEV}}/ai-notes/<repo-name>.md` exists and, if it does, read it:
 those are my personal rules for that repo (they do not go into the repo). The team's rules are in the repo itself
 (AGENTS.md, CLAUDE.md, CONTRIBUTING) and win over the generic ones here.
 

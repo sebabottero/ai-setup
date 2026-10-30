@@ -17,7 +17,7 @@ description: Run a whole ticket end to end - understand, plan, build, test, docs
 - **One writer** per ticket, in one worktree. Writing in parallel produces clashing decisions; if the ticket is so big it
   asks for several writers, split it into tickets and tell me at Gate 1.
 - Worktree: if you are already in one (an Orca workspace is one: `git rev-parse --git-dir` ≠ `--git-common-dir`), that is
-  the ticket's; do not create another. If not: `git worktree add ~/worktrees/<repo>/<ticket> -b ai/<ticket> <base>` and pass
+  the ticket's; do not create another. If not: `git worktree add <dev root>/worktrees/<repo>/<ticket> -b ai/<ticket> <base>` and pass
   that path as the only working directory.
 - The ticket branch stays local until Gate 2. No intermediate commits: the policy asks for OK on every commit.
 
@@ -36,14 +36,14 @@ After that, every edit or writer brief rejects files outside the allowlist and p
 ## 0b · Understand (parallel)
 In the same turn:
 - the whole ticket, with comments (through the tracker connector);
-- the project notes (`~/ai-notes/<repo>.md`) and the repo's rules (CLAUDE.md / AGENTS.md / CONTRIBUTING);
+- the project notes (`<dev root>/ai-notes/<repo>.md`) and the repo's rules (CLAUDE.md / AGENTS.md / CONTRIBUTING);
 - 2 or 3 Explore subagents with narrow questions: where the logic lives, the current flow end to end, existing tests and docs.
 
 Task type: **feature** (design before code) · **edit** (trace today's flow, then extend it, no duplicates) · **bug** (reproduce it before fixing).
 If the ticket is vague, use the `grillme` skill before the plan.
 
 ## 1 · Plan
-Write `~/handoffs/<ticket>/plan.md` (never in the repo):
+Write `<dev root>/handoffs/<ticket>/plan.md` (never in the repo):
 - goal in 1 or 2 sentences;
 - **acceptance criteria**, each with its concrete check;
 - **out of scope**;

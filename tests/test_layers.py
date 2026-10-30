@@ -277,6 +277,19 @@ class ExternalLayers(unittest.TestCase):
         with open(os.path.join(self.home, ".claude", "agents", "acme-agent.md")) as f:
             self.assertIn(f"see {real}/acme/notes", f.read())
 
+    def test_dev_root_moves_notes_and_the_dev_placeholder(self):
+        with open(os.path.join(self.extra, "acme", "policy.json"), "w") as f:
+            json.dump({"dev_root": "~/Dev"}, f)
+        with open(os.path.join(self.extra, "acme", "AGENTS.md"), "w") as f:
+            f.write("notes in {{DEV}}/ai-notes")
+        self.assertEqual(self.go("--layers-dir", self.extra, "--with", "acme").returncode, 0)
+        self.assertTrue(os.path.islink(os.path.join(self.home, "Dev", "ai-notes", "repo.md")))
+        self.assertFalse(os.path.lexists(os.path.join(self.home, "ai-notes")))
+        with open(os.path.join(self.build, "AGENTS.md")) as f:
+            self.assertIn("notes in ~/Dev/ai-notes", f.read())
+        self.assertEqual(self.go("--uninstall", "acme").returncode, 0)
+        self.assertFalse(os.path.lexists(os.path.join(self.home, "Dev", "ai-notes", "repo.md")))
+
     def test_policy_of_external_layers_is_protected(self):
         real = os.path.realpath(self.extra)
         layers.set_extra_roots([self.extra])

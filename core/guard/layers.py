@@ -102,7 +102,13 @@ def compose_policy(root, layers):
     return policy
 
 
+def dev_root(policy):
+    """Folder that holds the user's work (repos, handoffs, notes): `dev_root` in a layer's policy.json, as written (with ~). Default: home."""
+    return policy.get("dev_root", "~").rstrip("/") or "~"
+
+
 def compose_agents_md(root, layers):
+    dev = dev_root(compose_policy(root, layers))
     parts = []
     for layer in layers:
         path = os.path.join(layer_dir(root, layer), "AGENTS.md")
@@ -110,4 +116,4 @@ def compose_agents_md(root, layers):
             with open(path) as f:
                 parts.append(f"<!-- ai-setup: layer {layer}; if it clashes with an earlier layer, this one wins -->\n"
                              + f.read().strip().replace("{{LAYER}}", layer_dir(root, layer)))  # a layer's own folder
-    return "\n\n".join(parts).replace("{{AI_SETUP}}", root) + "\n"
+    return "\n\n".join(parts).replace("{{AI_SETUP}}", root).replace("{{DEV}}", dev) + "\n"

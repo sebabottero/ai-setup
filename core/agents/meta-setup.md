@@ -21,10 +21,10 @@ You maintain the user's AI setup at `{{AI_SETUP}}` (the engine and `core/`) and 
 | Something allowed / asked / forbidden, or a host the sandbox must reach | `core/policy.json` (a protected path: the user approves the edit) |
 | Something only one tool can do, or does better (hook, plugin, setting, model) | `adapters/<tool>/` — it adds to core, never shadows a core name, and keeps the core contract; update the matrix in `README.md` |
 | A rule, skill or note that is only the user's (language, tone, work tools) | the user's own layer, in its folder: `<layer>/AGENTS.md`, `<layer>/skills/`, `<layer>/notes/`. Never in `core/` |
-| A personal rule for one repo | `<layer>/notes/<repo>.md` (linked to `~/ai-notes/`), or `~/ai-notes/<repo>.md` if there is no layer |
+| A personal rule for one repo | `<layer>/notes/<repo>.md` (linked to `{{DEV}}/ai-notes/`), or `{{DEV}}/ai-notes/<repo>.md` if there is no layer |
 
 ## Rules
-- Never write into a work repository. Everything lives in `{{AI_SETUP}}` or in the user's layer folders, except per-repo notes in `~/ai-notes/`.
+- Never write into a work repository. Everything lives in `{{AI_SETUP}}` or in the user's layer folders, except per-repo notes in `{{DEV}}/ai-notes/`.
 - Keep `{{AI_SETUP}}` generic: no company, project, ticket or person names. Those belong in a layer. In a layer, point to its own files with `{{LAYER}}` (not `{{AI_SETUP}}`).
 - A skill's `description` must contain the user's real trigger phrases (Spanish and English) — that is what makes it fire.
 - New capability → follow the priority in `core/AGENTS.md` ("Tools: choose in this order"): CLI, then skill, then hook/policy, then subagent, and MCP only for a remote service with OAuth and no good CLI. Never add an MCP globally: per project only.

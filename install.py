@@ -157,8 +157,15 @@ def parse_agent(path):
     return meta, m.group(2).lstrip("\n")
 
 
+def dev_root_text(layer_names=None):
+    """The user's work folder as written in the policy (~/Dev, or ~ when no layer sets one)."""
+    return layerlib.dev_root(policy(layer_names))
+
+
 def expand(text):
     text = text.replace("{{AI_SETUP}}", ROOT)
+    if "{{DEV}}" in text:
+        text = text.replace("{{DEV}}", dev_root_text())
     return HOME + text[1:] if text.startswith("~") else text
 
 
@@ -208,7 +215,7 @@ def agents(tool):
         edit = meta.get("edit", "none")
         meta["edit_globs"] = [] if edit in ("none", "all") else [e for g in edit.split(",") for e in edit_globs(g.strip())]
         folder = os.path.dirname(os.path.dirname(path))  # <layer>/agents/x.md -> the layer's own folder
-        result.append((meta, body.replace("{{LAYER}}", folder).replace("{{AI_SETUP}}", ROOT)))
+        result.append((meta, body.replace("{{LAYER}}", folder).replace("{{AI_SETUP}}", ROOT).replace("{{DEV}}", dev_root_text())))
     return result
 
 
@@ -281,14 +288,18 @@ def build_policy():
     return render_build("policy.json", json.dumps(policy(), indent=2, ensure_ascii=False) + "\n")
 
 
+def notes_folder(layer_names=None):
+    return os.path.join(expand(dev_root_text(layer_names)), "ai-notes")
+
+
 def link_notes(layer_names):
-    """<layer>/notes/*.md -> ~/ai-notes/: per-repo notes live in ai-setup (and its backup), the tools read them from home."""
+    """<layer>/notes/*.md -> <dev root>/ai-notes/ (~/ai-notes unless a layer sets dev_root): per-repo notes live in ai-setup (and its backup), the tools read them from there."""
     for layer in layer_names:
         folder = os.path.join(layerlib.layer_dir(ROOT, layer), "notes")
         if os.path.isdir(folder):
             for name in sorted(os.listdir(folder)):
                 if name.endswith(".md"):
-                    link(os.path.join(folder, name), os.path.join(HOME, "ai-notes", name))
+                    link(os.path.join(folder, name), os.path.join(notes_folder(), name))
 
 
 UNMANAGED = []  # skills installed straight into a tool, outside core/skills
@@ -333,6 +344,7 @@ def claude_lists(pol):
                                 [f"Edit(/{p})" for p in protected_paths(pol)],  # "//" = absolute path in Claude rules
         # read-only commands and MCP tools that never need a prompt; ask and deny rules still win over these
         ("permissions", "allow"): [f"Bash({c})" for c in pol.get("allow_commands", [])] +
+                                  [f"Edit(/{expand(d)}/**)" for d in pol.get("work_dirs", [])] +  # work_dirs: edits without a prompt (the ask rules above still win)
                                   ["mcp__" + t.replace(".", "__") for t in pol.get("allow_mcp_tools", []) if "*" not in t],
         ("permissions", "deny"): [f"{tool}(**/{f})" for f in pol.get("deny_files", []) for tool in ("Read", "Edit")] +
                                  [f"Read({d}/**)" for d in pol.get("deny_home_dirs", [])],
@@ -573,14 +585,15 @@ def unlink_layer(removed, tool):
 
 
 def unlink_notes(removed):
-    folder = os.path.join(HOME, "ai-notes")
-    for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
-        path = os.path.join(folder, name)
-        if os.path.islink(path) and os.path.realpath(path).startswith(tuple(layerlib.layer_dir(ROOT, l) + os.sep for l in removed)):
-            backup(path)
-            log(f"remove  {path}")
-            if not args.dry_run:
-                os.remove(path)
+    # the folder may come from a layer being removed: also look where every layer on disk would put it
+    for folder in dict.fromkeys([notes_folder(), notes_folder(layerlib.present(ROOT))]):
+        for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+            path = os.path.join(folder, name)
+            if os.path.islink(path) and os.path.realpath(path).startswith(tuple(layerlib.layer_dir(ROOT, l) + os.sep for l in removed)):
+                backup(path)
+                log(f"remove  {path}")
+                if not args.dry_run:
+                    os.remove(path)
 
 
 def subtract(items, drop):

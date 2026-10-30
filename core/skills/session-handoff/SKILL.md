@@ -5,7 +5,7 @@ description: Write a self-contained handoff prompt so another agent session (ano
 
 # Handoff prompt between sessions
 
-Save the prompt in a file outside the repo (by default `~/handoffs/<ticket>-<topic>.md`) and give the user the path.
+Save the prompt in a file outside the repo (by default `<dev root>/handoffs/<ticket>-<topic>.md`; the dev root is the folder named in the notes rule of your instructions, `~` if none) and give the user the path.
 The other session cannot see this conversation: everything it needs goes in the file.
 
 ## Template
