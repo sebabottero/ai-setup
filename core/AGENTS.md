@@ -23,6 +23,8 @@
   or irreversible decision, scope change, commit / push / merge / tracker writes) and put all questions in one message.
 - Close every task with a **receipt**: changes made · commands run · their outcome · failures · open doubts.
   Add the changes of medium or high risk (tests, hooks, policy, install scripts), each with one line on its impact.
+  Then add **Efficiency** (3-5 lines, only if something concrete could have gone better in this session, else "nothing to adjust"):
+  what in my prompt or in the model / effort choice caused rework, and how to ask it next time. Never generic tips.
   Then suggest `/rename` + `/clear`. If I corrected the same thing twice in a session, suggest `/clear` and a better prompt.
 - If something is still blocked by the sandbox (a write to `~/.claude`, the regeneration of `build/AGENTS.md`), do not
   retry and do not interrupt me per step: keep working, collect every blocked command and give them to me at the end
