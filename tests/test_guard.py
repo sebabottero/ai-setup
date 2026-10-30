@@ -185,9 +185,12 @@ class Allows(unittest.TestCase):
                   "cd ~/Dev/ai-setup && grep -rn mcp install.py 2>/dev/null"]:
             self.assertEqual(decision(c), "allow", c)
 
-    def test_a_folder_named_tests_in_another_repo(self):
-        self.assertEqual(decision("echo x > tests/out.txt", cwd="/Users/x/work/repo"), "allow")
-        self.assertEqual(decision("echo x > tests/out.txt"), "ask")  # same command with cwd in ai-setup
+    def test_a_folder_named_build_in_another_repo(self):
+        self.assertEqual(decision("echo x > build/out.txt", cwd="/Users/x/work/repo"), "allow")
+        self.assertEqual(decision("echo x > build/out.txt"), "ask")  # same command with cwd in ai-setup
+
+    def test_tests_folder_is_not_protected(self):
+        self.assertEqual(decision("echo x > tests/out.txt"), "allow")  # edited freely, listed in the receipt
 
     def test_git_words_that_are_only_text(self):
         for c in ["grep -rn 'git rebase' docs", 'echo "git merge is asked"', "rg 'tea pulls create' ."]:

@@ -75,7 +75,6 @@
     "{{AI_SETUP}}/build/*",
     "{{AI_SETUP}}/install.py",
     "{{AI_SETUP}}/install.sh",
-    "{{AI_SETUP}}/tests/*",
     "~/.config/opencode/opencode.json",
     "~/.config/opencode/plugins/*"
   ],
