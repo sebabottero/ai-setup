@@ -1,9 +1,14 @@
 #!/bin/sh
 # Packs ai-setup (with its git history) into a zip to keep on Drive or a USB stick before wiping the machine.
 # Usage: ./backup.sh [--without <layer>] [target-folder]
+#        ./backup.sh --full DEST [--dry-run]   |   ./backup.sh --restore FILE.age [--home DIR] [--force]
 #   --without <layer>  leaves that layer folder out. The .git history too (it may hold the layer in its commits).
 # Layers kept in another folder (--layers-dir) are not in this zip: back them up with their own repo. Verifies the zip at the end.
 set -e
+# --full / --restore: encrypted backup of the personal files (see backup_full.py)
+case "$1" in
+  --full|--restore) exec python3 "$(dirname "$0")/backup_full.py" "$@" ;;
+esac
 skip=""
 while [ $# -gt 0 ]; do
   case "$1" in

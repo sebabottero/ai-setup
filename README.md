@@ -181,6 +181,12 @@ Third-party skills are not bundled, to keep their licenses and updates with thei
 Your layers are in your own repo: commit and push there. `./backup.sh [--without <folder>] [target]` makes a verified zip of this
 folder in `~/Downloads`; layers kept in another folder are not in it.
 
+For the personal files that are in no repo: `./backup.sh --full DEST [--dry-run]` writes `DEST/ai-personal-YYYYMMDD.tar.age`
+(needs `age`, asks for a passphrase) plus a plain `RESTORE.md`. Only an allowlist is read (instagram-estetica without `models`/`export`,
+`~/Dev/handoffs`, `~/Dev/ai-notes`, Claude `memory/` and `history.jsonl`, dotfiles, a generated Brewfile). Secrets, `~/.claude.json`,
+`gh` login and transcripts are only listed as "copy by hand". `--dry-run` shows both lists and warns about dirty repos or unpushed branches.
+`./backup.sh --restore FILE.age [--home DIR] [--force]` never overwrites unless `--force` (keeps a `.bak`).
+
 ## Extending it
 Put your own rules in a layer (a folder with the files below); `core/` stays untouched and a layer only **adds**. Then run `./install.sh --with <layer>` and open a new session (the guard reads `build/policy.json` at start).
 
