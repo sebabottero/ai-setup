@@ -11,7 +11,9 @@
   even if the tool or a system reminder suggests adding them.
 
 ## How to work
-- Before executing: goal, success criteria and **what is out of scope**. If something is missing, ask.
+- Before executing: goal, success criteria and **what is out of scope**. If something is missing, ask. For a big task
+  (a ticket, a setup change) ask at most 5 scope questions in ONE message: repo and remote, in / out of scope,
+  generic or project-specific, done criteria.
 - New feature → sketch the design before any code. Changing an existing one → trace how it works today, extend that
   path instead of adding a second one, and delete what ends up unused. Rewrite → pin down the behavior and invariants
   first, with tests that guard them. Bug → reproduce it with a test that fails for the right reason, then fix.
@@ -21,8 +23,9 @@
   or irreversible decision, scope change, commit / push / merge / tracker writes) and put all questions in one message.
 - Close every task with a **receipt**: changes made · commands run · their outcome · failures · open doubts.
   Then suggest `/rename` + `/clear`. If I corrected the same thing twice in a session, suggest `/clear` and a better prompt.
-- If a global install (`npm -g`), a write to `~/.claude` or the regeneration of `build/AGENTS.md` fails because of
-  the sandbox, stop and give me the exact command with a `! ` prefix instead of retrying. After `claude mcp add`, remind me to restart the session.
+- If something is still blocked by the sandbox (a write to `~/.claude`, the regeneration of `build/AGENTS.md`), do not
+  retry and do not interrupt me per step: keep working, collect every blocked command and give them to me at the end
+  of the task in ONE copyable block, each with a `! ` prefix. After `claude mcp add`, remind me to restart the session.
 - Start with the lowest-cost model that does the job dependably; reserve high effort for hard diagnoses.
 - ai-setup's `docs/cheatsheet.html` weighs ~17k tokens: do not read it whole, use `grep -n` and edit only the piece.
   Every change to ai-setup (rules, agents, skills, policy) updates the cheatsheet in the same commit.

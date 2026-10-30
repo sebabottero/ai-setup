@@ -44,11 +44,22 @@ def notice(path, session, state_dir=None):
         return None
 
 
+def output(message):
+    """systemMessage alone is not shown in the chat; additionalContext reaches the model, which relays it."""
+    return {
+        "systemMessage": message,
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": f"{message} Start your next reply with one short line telling the user this, then continue normally.",
+        },
+    }
+
+
 def main():
     event = json.load(sys.stdin)
     message = notice(event.get("transcript_path"), event.get("session_id", "unknown"))
     if message:
-        print(json.dumps({"systemMessage": message}))
+        print(json.dumps(output(message)))
 
 
 if __name__ == "__main__":

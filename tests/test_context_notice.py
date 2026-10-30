@@ -63,6 +63,14 @@ class ContextNotice(Base):
         self.assertIsNone(self.notice(os.path.join(self.dir, "missing.jsonl")))
         self.assertIsNone(self.notice(None))
 
+    def test_output_reaches_the_model(self):
+        out = context_notice.output("Context is 160k tokens.")
+        extra = out["hookSpecificOutput"]
+        self.assertEqual(extra["hookEventName"], "UserPromptSubmit")
+        self.assertIn("160k", extra["additionalContext"])
+        self.assertIn("telling the user", extra["additionalContext"].lower())
+        self.assertEqual(out["systemMessage"], "Context is 160k tokens.")
+
 
 class UsageReport(Base):
     def test_summary(self):
