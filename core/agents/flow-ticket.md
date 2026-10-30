@@ -5,7 +5,7 @@ mode: primary
 edit: {{DEV}}/handoffs/*
 bash: all
 claude_tools: *
-tier: strong
+tier: balanced
 color: purple
 ---
 
