@@ -34,6 +34,7 @@ class Install(unittest.TestCase):
         commands = [h["command"] for groups in s["hooks"].values() for g in groups for h in g["hooks"]]
         self.assertTrue(any("policy_guard.py" in c for c in commands))
         self.assertTrue(any("context_notice.py" in c for c in commands))
+        self.assertTrue(any("tune_notice.py" in c for c in commands))
         self.assertTrue(os.path.exists(os.path.join(self.home, ".claude", "hooks", "policy_guard.py")))
         self.assertEqual(s["permissions"]["defaultMode"], "auto")
         self.assertEqual(s["model"], "opusplan")  # Opus to plan, Sonnet to execute

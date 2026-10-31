@@ -399,6 +399,7 @@ def install_claude(agents_md):
     settings.setdefault("env", {}).setdefault("CLAUDE_CODE_SUBAGENT_MODEL", "sonnet")
     add_hook(settings, "PreToolUse", "Bash|mcp__.*", "policy_guard.py", 10)
     add_hook(settings, "UserPromptSubmit", None, "context_notice.py", 5)  # informational context-size notice
+    add_hook(settings, "SessionStart", None, "tune_notice.py", 5)  # informational: /insights data is old, offer tune-setup
 
     # OS sandbox for Bash, from the composed policy: the wall the regex guard cannot be
     box = settings.setdefault("sandbox", {})
