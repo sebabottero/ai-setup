@@ -1,6 +1,6 @@
 ---
 name: grillme
-description: Interview the user, one question at a time, until the task or decision is fully understood before any work starts. Use for "grill me", "grillme", "interview me", "ask me questions", "hazme preguntas", "pregúntame", "prepárame con preguntas", "quiero la foto completa", "ayúdame a pensarlo", or when a task arrives described too vaguely to plan.
+description: Interview the user, one question at a time, until the task or decision is fully understood before any work starts. Use for "grill me", "grillme", "interview me", "ask me questions", "hazme preguntas", "pregúntame", "prepárame con preguntas", "quiero la foto completa", "ayúdame a pensarlo", or when a task arrives described too vaguely to plan, or before a feature, ticket or change whose scope is unclear or that can be read in 2+ ways.
 ---
 
 # Interview before working

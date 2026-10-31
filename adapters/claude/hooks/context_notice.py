@@ -16,7 +16,7 @@ def _env_int(name, default):
 
 def thresholds():
     """START and STEP, overridable with CLAUDE_CONTEXT_NOTICE_START / _STEP (invalid values fall back)."""
-    return _env_int("CLAUDE_CONTEXT_NOTICE_START", 150_000), _env_int("CLAUDE_CONTEXT_NOTICE_STEP", 50_000)
+    return _env_int("CLAUDE_CONTEXT_NOTICE_START", 100_000), _env_int("CLAUDE_CONTEXT_NOTICE_STEP", 50_000)
 
 
 def _scan(lines):

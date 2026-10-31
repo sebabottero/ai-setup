@@ -43,7 +43,7 @@ class ContextNotice(Base):
         return context_notice.notice(path, session, self.dir)
 
     def test_silent_below_threshold(self):
-        self.assertIsNone(self.notice(self.transcript(40_000, 149_000)))
+        self.assertIsNone(self.notice(self.transcript(40_000, 99_000)))
 
     def test_warns_above_threshold_once(self):
         path = self.transcript(120_000, 160_000)
@@ -76,7 +76,7 @@ class ContextNotice(Base):
         os.environ["CLAUDE_CONTEXT_NOTICE_START"] = "abc"
         os.environ["CLAUDE_CONTEXT_NOTICE_STEP"] = "-5"
         try:
-            self.assertEqual(context_notice.thresholds(), (150_000, 50_000))
+            self.assertEqual(context_notice.thresholds(), (100_000, 50_000))
         finally:
             del os.environ["CLAUDE_CONTEXT_NOTICE_START"], os.environ["CLAUDE_CONTEXT_NOTICE_STEP"]
 
