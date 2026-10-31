@@ -63,6 +63,52 @@ class ContextNotice(Base):
         self.assertIsNone(self.notice(os.path.join(self.dir, "missing.jsonl")))
         self.assertIsNone(self.notice(None))
 
+    def test_env_overrides_thresholds(self):
+        os.environ["CLAUDE_CONTEXT_NOTICE_START"] = "50000"
+        os.environ["CLAUDE_CONTEXT_NOTICE_STEP"] = "10000"
+        try:
+            self.assertIn("60k", self.notice(self.transcript(60_000)))
+            self.assertIn("70k", self.notice(self.transcript(70_000)))
+        finally:
+            del os.environ["CLAUDE_CONTEXT_NOTICE_START"], os.environ["CLAUDE_CONTEXT_NOTICE_STEP"]
+
+    def test_invalid_env_falls_back_to_defaults(self):
+        os.environ["CLAUDE_CONTEXT_NOTICE_START"] = "abc"
+        os.environ["CLAUDE_CONTEXT_NOTICE_STEP"] = "-5"
+        try:
+            self.assertEqual(context_notice.thresholds(), (150_000, 50_000))
+        finally:
+            del os.environ["CLAUDE_CONTEXT_NOTICE_START"], os.environ["CLAUDE_CONTEXT_NOTICE_STEP"]
+
+    def test_band_resets_after_drop(self):
+        self.assertIsNotNone(self.notice(self.transcript(160_000)))
+        self.assertIsNone(self.notice(self.transcript(30_000)))  # e.g. after /compact
+        self.assertIsNotNone(self.notice(self.transcript(160_000)))
+
+    def test_reads_only_the_tail_of_a_big_transcript(self):
+        path = os.path.join(self.dir, "big.jsonl")
+        with open(path, "w") as f:
+            f.write(json.dumps(turn(999_000)) + "\n")  # old turn, outside the tail
+            for _ in range(5000):
+                f.write(json.dumps({"type": "user", "message": {"content": "x" * 100}}) + "\n")
+            f.write(json.dumps(turn(160_000)) + "\n")
+        self.assertGreater(os.path.getsize(path), context_notice.TAIL_BYTES)
+        self.assertEqual(context_notice.last_context(path), 160_000)
+
+    def test_tail_without_usage_falls_back_to_full_read(self):
+        path = os.path.join(self.dir, "big2.jsonl")
+        with open(path, "w") as f:
+            f.write(json.dumps(turn(170_000)) + "\n")
+            for _ in range(5000):
+                f.write(json.dumps({"type": "user", "message": {"content": "x" * 100}}) + "\n")
+        self.assertEqual(context_notice.last_context(path), 170_000)
+
+    def test_message_gives_the_exact_action(self):
+        msg = self.notice(self.transcript(160_000))
+        self.assertIn("`handoff`", msg)
+        self.assertIn("/clear", msg)
+        self.assertNotIn("\n", msg)
+
     def test_output_reaches_the_model(self):
         out = context_notice.output("Context is 160k tokens.")
         extra = out["hookSpecificOutput"]
