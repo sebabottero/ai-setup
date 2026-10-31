@@ -32,7 +32,7 @@ INCLUDE = [
     ".config/anthropic",
 ]
 # Top-level folders left out of an included folder (relative to $HOME)
-EXCLUDE = {"Dev/instagram-estetica/models", "Dev/instagram-estetica/export"}
+EXCLUDE = {"Dev/instagram-estetica/models", "Dev/instagram-estetica/exports"}
 SKIP_NAMES = {".DS_Store", "__pycache__"}
 # Listed, never opened
 BY_HAND = [
@@ -43,7 +43,7 @@ BY_HAND = [
     (".zsh_history", "may hold pasted secrets"),
     (".config/gh", "GitHub token (run `gh auth login`)"),
     ("Dev/instagram-estetica/models", "800 MB with export"),
-    ("Dev/instagram-estetica/export", "800 MB with models"),
+    ("Dev/instagram-estetica/exports", "800 MB with models"),
     (".claude/projects", "session transcripts (only memory/ is in the backup)"),
 ]
 BY_HAND_PATTERNS = ["every .env.local", "every appsettings.*.local.json"]

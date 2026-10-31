@@ -33,7 +33,7 @@ class BackupFull(unittest.TestCase):
         write(f"{h}/Dev/handoffs/a.md", "handoff")
         write(f"{h}/Dev/instagram-estetica/brand.md", "brand")
         write(f"{h}/Dev/instagram-estetica/models/big.bin", "model")
-        write(f"{h}/Dev/instagram-estetica/export/big.mp4", "export")
+        write(f"{h}/Dev/instagram-estetica/exports/big.mp4", "export")
         write(f"{h}/.claude/projects/p1/memory/m.md", "memory")
         write(f"{h}/.claude/projects/p1/session.jsonl", "transcript")
         write(f"{h}/.ssh/id_ed25519", "SECRET")
@@ -83,7 +83,7 @@ class BackupFull(unittest.TestCase):
         self.assertIn(".claude/projects/p1/memory/m.md", names)
         self.assertIn("Dev/instagram-estetica/brand.md", names)
         for bad in (".ssh/id_ed25519", ".config/gh/hosts.yml", ".claude.json", ".claude/projects/p1/session.jsonl",
-                    "Dev/instagram-estetica/models/big.bin", "Dev/instagram-estetica/export/big.mp4"):
+                    "Dev/instagram-estetica/models/big.bin", "Dev/instagram-estetica/exports/big.mp4"):
             self.assertNotIn(bad, names)
         self.assertTrue(os.path.exists(os.path.join(self.dest, "RESTORE.md")))
         self.assertNotIn("SECRET", open(age_file, "rb").read().decode("latin1"))
