@@ -18,6 +18,37 @@ $ echo '{"tool":"bash","command":"git status"}' | python3 core/guard/guard.py
 ```
 Every ask starts with a risk label (`🔴 high risk` or `🟡 medium risk`; a compound command shows its highest). Reading secrets (SSH and cloud credentials, `.env.local`) is a hard `deny`. All of it is covered by `tests/test_guard.py` and the rest of the suite, which runs in CI.
 
+## Spend fewer tokens (Claude Code)
+Long sessions cost more and answer worse, and most people never see it happening. Three small pieces make it visible and fix the habit:
+
+| Piece | What it does | When |
+|---|---|---|
+| **`coach` skill** | Before a task: which model and effort to use, and your request rewritten as goal · done when · out of scope · where to start | `/coach` or "which model should I use?" |
+| **Context notice** (hook) | One info line when the session passes 100k tokens, then every 50k. Never blocks; thresholds via `CLAUDE_CONTEXT_NOTICE_START` / `_STEP` | Every prompt |
+| **Usage audit** (`usage_report.py`) | Reads your own transcripts: sessions over 150k, which models run the turns, top tools, what the guard asked. Local only, sends nothing | On demand |
+
+Real output of the audit on a month of use (`python3 -I adapters/claude/usage_report.py 30`):
+```console
+Sessions: 149  |  over 150k: 35 (23%)  |  over 300k: 9  |  peak: 772k
+Turns by model: claude-sonnet-5-5 60%, claude-opus-5-5 39%
+Top tools: Bash 4642, Edit 1022, Read 622, Write 315, Agent 179
+Guard: 1233 allowed, 352 asked, 4 denied. Rules that fire most: outside-sandbox 123, git push * 80, protected_paths 37
+```
+The notice you see in the chat (`Context is 180k tokens. Long sessions cost more and answer worse: say handoff and I write it, then /clear.`),
+and what `coach` answers (example):
+```text
+Task: bug
+Model: sonnet · effort medium
+- reproduce first, strong model only if it stays unclear
+Prompt (copy):
+> Goal: login returns 500 when the email has a "+"
+> Done when: a failing test reproduces it, then passes
+> Out of scope: the signup form
+> Start from: src/auth/login.ts
+Missing: which environment fails? (default: local)
+```
+`tune-setup` closes the loop: every ~30 days it reads your `/insights` data and proposes a diff to re-tune `coach`, the notice thresholds and `grillme`. It edits only after you approve.
+
 ### Limits (read first)
 - **macOS first.** Linux works for the guard, the installer and the tests (CI runs Ubuntu); `bootstrap.py` lists the brew packages
   for your own package manager instead of installing them. No Windows.
@@ -50,7 +81,8 @@ Stock tools already have permission prompts, subagents and skills. This repo add
 | Hard limit | Optional sandbox you configure yourself | The OS sandbox is generated from the same policy (Claude Code) |
 | Several tools | Each one has its own config format | The same rules and skills installed into Claude Code, OpenCode and Codex |
 | Ticket work | You drive each step yourself | `flow-ticket`: strong model plans, one `sub-builder` writes in its own git worktree, review, tests and checks run read-only in parallel |
-| Repeated processes | Ad-hoc prompts | Skills: `ticket-flow`, `validate`, `setup-commit`, `session-handoff`, `grillme`, `pr-review-ticket` |
+| Token cost | You find out on the bill | `coach` picks model and effort before you start; a hook warns when the context passes 100k; `usage_report.py` audits your own sessions locally |
+| Repeated processes | Ad-hoc prompts | Skills: `ticket-flow`, `validate`, `setup-commit`, `session-handoff`, `grillme`, `coach`, `pr-review-ticket` |
 | New machine | Manual setup | `bootstrap.py` + `install.sh`: backup first, policy checked before writing, tests in CI |
 
 ## Is it for you?
@@ -59,7 +91,8 @@ Stock tools already have permission prompts, subagents and skills. This repo add
 - use an AI agent on real repos and want `git push`, deletes and secret reads to need your OK;
 - switch between Claude Code, OpenCode and Codex and want the same rules in all of them;
 - work from tickets and want planning, one writer and independent review as a repeatable flow;
-- want your language, tone and company tools in private layers, not in a fork.
+- want your language, tone and company tools in private layers, not in a fork;
+- want to see and cut your token spend: right model per task, a warning before a session gets expensive, a local audit.
 
 **Probably not, if you:**
 - only run short throwaway scripts with an agent;
@@ -138,10 +171,10 @@ earlier that no layer produces any more. Rules you added by hand stay.
 |---|---|
 | `core/AGENTS.md` | Generic instructions: limits, way of working, tools |
 | `core/agents/` | `flow-ticket`, `sub-review`, `sub-builder`, `sub-tester`, `leaf-verify`, `meta-setup` |
-| `core/skills/` | `ticket-flow`, `pr-review-ticket`, `session-handoff`, `validate`, `setup-commit`, `grillme` |
+| `core/skills/` | `ticket-flow`, `pr-review-ticket`, `session-handoff`, `validate`, `setup-commit`, `grillme`, `coach` |
 | `core/policy.json` | Permissions, single source |
 | `core/guard/` | Shared allow / ask / deny logic and the layer loader |
-| `adapters/` | Per-tool hooks, plugins and settings. Claude: guard hook, a context-size notice hook (info only, above 150k tokens) and `usage_report.py` (local usage summary and guard log counts, sends nothing) |
+| `adapters/` | Per-tool hooks, plugins and settings. Claude: guard hook, a context-size notice hook (info only, above 100k tokens), `tune-setup` and a re-tune reminder and `usage_report.py` (local usage summary and guard log counts, sends nothing) |
 | `tests/` | Guard, layers, bootstrap and a full install into a temporary home. Layers used in tests are in `tests/fixtures/layers` |
 | `docs/` | `cheatsheet.html` (visual summary, English and Spanish) and `ANALISIS.md` (what is met and what is missing) |
 | `build/` | Generated by the installer. Do not edit |
