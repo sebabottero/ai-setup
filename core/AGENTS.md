@@ -22,6 +22,8 @@
 - Work without asking me while it is local, reversible and verifiable. Stop only at the gates (plan approval, an ambiguous
   or irreversible decision, scope change, commit / push / merge / tracker writes) and put all questions in one message.
 - Close every task with a **receipt**: changes made · commands run · their outcome · failures · open doubts.
+  Add a **Drive** line: every Google Drive change (rclone on `GDrive:`) made in this session, read from
+  `~/Dev/logs/drive-changes.log` (lines with this session's id, HIGH-RISK ones first), or "none". Use `rclone copy`, never `sync`.
   Add the changes of medium or high risk (tests, hooks, policy, install scripts), each with one line on its impact.
   Then add **Efficiency** (3-5 lines, only if something concrete could have gone better in this session, else "nothing to adjust"):
   what in my prompt or in the model / effort choice caused rework, and how to ask it next time. Never generic tips.
