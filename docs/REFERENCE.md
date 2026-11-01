@@ -2,6 +2,29 @@
 
 Details moved out of the [README](../README.md). Design notes: [DESIGN.md](DESIGN.md).
 
+## Spend fewer tokens (Claude Code)
+| Piece | What it does | When |
+|---|---|---|
+| **`coach` skill** | Before a task: which model and effort to use, and your request rewritten as goal · done when · out of scope · where to start | `/coach` or "which model should I use?" |
+| **Context notice** (hook) | One info line when the session passes 100k tokens, then every 50k. Never blocks; thresholds via `CLAUDE_CONTEXT_NOTICE_START` / `_STEP` | Every prompt |
+| **Usage audit** (`adapters/claude/usage_report.py`) | Reads your own transcripts: sessions over 150k, models, top tools, guard decisions. Local only, sends nothing | On demand |
+
+The notice you see in the chat: `Context is 180k tokens. Long sessions cost more and answer worse: say handoff and I write it, then /clear.`
+
+What `coach` answers (example):
+```text
+Task: bug
+Model: sonnet · effort medium
+- reproduce first, strong model only if it stays unclear
+Prompt (copy):
+> Goal: login returns 500 when the email has a "+"
+> Done when: a failing test reproduces it, then passes
+> Out of scope: the signup form
+> Start from: src/auth/login.ts
+Missing: which environment fails? (default: local)
+```
+`tune-setup` closes the loop: every ~30 days it reads your `/insights` data and proposes a diff to re-tune `coach`, the notice thresholds and `grillme`. It edits only after you approve.
+
 ## Limits
 - **macOS first.** Linux works for the guard, the installer and the tests (CI runs Ubuntu); `bootstrap.py` lists the brew packages
   for your own package manager instead of installing them. No Windows.
