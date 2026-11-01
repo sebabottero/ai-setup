@@ -81,10 +81,10 @@ def main():
     if not items:
         return
     record(items, event.get("session_id", "?"))
-    message = warning(items)
-    if message:
-        print(json.dumps({"systemMessage": message, "hookSpecificOutput": {
-            "hookEventName": "PreToolUse", "additionalContext": message}}))
+    what = "; ".join(f"rclone {c['sub']} {c['src']} {c['dst']}".rstrip(" -") for c in items)
+    message = warning(items) or f"Drive change logged: {what}. List it in the receipt Drive line."
+    print(json.dumps({"systemMessage": message, "hookSpecificOutput": {
+        "hookEventName": "PreToolUse", "additionalContext": message}}))
 
 
 if __name__ == "__main__":

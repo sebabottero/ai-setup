@@ -46,7 +46,8 @@ class Hook(unittest.TestCase):
 
     def test_mutation_is_logged_with_fields(self):
         out, lines = self.run_hook("rclone copy ./a GDrive:b")
-        self.assertEqual(out, "")
+        self.assertIn("Drive change logged: rclone copy ./a GDrive:b", out)
+        self.assertNotIn("HIGH RISK", out)
         self.assertEqual(len(lines), 1)
         self.assertEqual(lines[0].split("\t")[1:], ["s1", "copy", "./a", "GDrive:b", "-", "-"])
 
