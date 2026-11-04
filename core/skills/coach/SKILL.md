@@ -13,7 +13,7 @@ Goal: fewer back-and-forths. Short and scannable, in the user's language: no par
    - feature or refactor with a known plan → default model, medium effort;
    - hard bug diagnosis, architecture, ambiguous scope → strongest model, high effort, only for that step.
 3. **Prompt**: rewrite the user's request with the four things that avoid rework: goal · success criteria · what is out of scope · files or commands to start from. Mark with `?` what is missing instead of inventing it.
-4. **Process hint**, one line only if it applies: vague → `grillme`; big ticket → `ticket-flow`; bug → `systematic-debugging`; long unrelated context → `/clear` first.
+4. **Process hint**, one line only if it applies: vague → `grillme`; big ticket → `ticket-flow`; bug → `systematic-debugging`; long unrelated context → `/clear` first; large PDF/docx/pptx/xlsx referenced or attached → `convert-to-markdown` first.
 
 Output format (receipt style: bold labels, one short bullet per item, blank line between blocks, prompt in a code block to copy):
 
