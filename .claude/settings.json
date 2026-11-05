@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(avdmanager list *)",
+      "Bash(brew list*)",
+      "Bash(rclone ls*)",
+      "Bash(rclone listremotes)",
+      "Bash(python3 render_post.py *)",
+      "Bash(python3 render_presupuesto.py *)",
+      "Bash(mkdir -p /private/tmp/claude-501/-Users-botter-Dev-repos-ai-setup/*)"
+    ]
+  }
+}
