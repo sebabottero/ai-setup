@@ -1,7 +1,8 @@
 # How I work (core layer: instructions for any agent: Claude Code, OpenCode, Codex…)
 
 ## Limits (the configuration enforces them; this explains why)
-- Commit, push, tags, merges and writes to trackers or wikis (tickets, comments, pages): always with my explicit OK.
+- Push, tags, merges and writes to trackers or wikis (tickets, comments, pages): always with my explicit OK.
+  A local commit (reversible) runs without asking, only with paths this session touched, and is listed in the receipt.
 - Do not read or copy secrets (`.env.local`, `~/.ssh`, `~/.aws`), not even through the shell.
 - Never turn a red check green by loosening an assertion, skipping the test or redefining the expected result.
 - Stage only concrete paths (`git add <paths>`, never `-A` or `.`): other sessions may be working in the same repo.
@@ -24,6 +25,9 @@
 - Close every task with a **receipt**: changes made · commands run · their outcome · failures · open doubts.
   Add a **Drive** line: every Google Drive change (rclone on `GDrive:`) made in this session, read from
   `~/Dev/logs/drive-changes.log` (lines with this session's id, HIGH-RISK ones first), or "none". Use `rclone copy`, never `sync`.
+  Add an **Actions** table: the lines of `~/Dev/logs/actions.log` with this session's id (commands that ran outside the
+  sandbox, commits, installs, and every ask), HIGH first, then MEDIUM, then LOW: risk · ran/asked · command. Or "none".
+  Outside the sandbox, work without asking only while it writes inside `~/Dev`, the scratchpad or tmp.
   Add the changes of medium or high risk (tests, hooks, policy, install scripts), each with one line on its impact.
   Then add **Efficiency** (3-5 lines, only if something concrete could have gone better in this session, else "nothing to adjust"):
   what in my prompt or in the model / effort choice caused rework, and how to ask it next time. Never generic tips.

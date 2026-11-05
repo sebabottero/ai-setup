@@ -20,10 +20,10 @@ def main():
     if tool == "Bash":
         given = event.get("tool_input", {})
         ask = {"tool": "bash", "command": given.get("command", ""), "cwd": event.get("cwd"),
-               "unsandboxed": given.get("dangerouslyDisableSandbox") is True}
+               "unsandboxed": given.get("dangerouslyDisableSandbox") is True, "session": event.get("session_id")}
     elif tool.startswith("mcp__"):
         _, server, name = tool.split("__", 2)
-        ask = {"tool": "mcp", "name": f"{server}.{name}"}
+        ask = {"tool": "mcp", "name": f"{server}.{name}", "session": event.get("session_id")}
     else:
         return
     reply(*guard.decide(ask, log=True))

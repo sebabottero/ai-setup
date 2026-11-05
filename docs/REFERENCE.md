@@ -33,6 +33,9 @@ Missing: which environment fails? (default: local)
   a variable-built command or base64: those stay as `expectedFailure` in `tests/test_guard.py`. The OS sandbox is the wall (Claude only).
 - **OpenCode** uses a beta plugin API; our side is tested with a fake context, not the real OpenCode. **Codex** gets instructions and skills only.
 - **No telemetry.** The guard keeps a local log (`~/.ai-setup/guard.log`: time, decision, rule; never the command). `AI_SETUP_GUARD_LOG=off` disables it.
+- **Action log for the receipt.** `~/Dev/logs/actions.log` (`AI_SETUP_ACTIONS_LOG`, `off` disables) lists, per session, what ran
+  outside the sandbox, what matched `log_commands` (local commits, installs) and every ask, with its risk. The command is kept
+  redacted (tokens, `Bearer`, `*_KEY=`, long opaque strings → `***`) and cut to 240 chars. Reads and sandboxed work are not listed.
 
 ## Why
 - **Seatbelt plus wall.** A regex over shell text can be fooled (base64, commands built inside a script). Those gaps are listed
@@ -108,7 +111,9 @@ Reserved names: `adapters`, `docs`, `tests`, `build`. Layers only **add**: a lay
   let read-only commands run. `deny_files` / `deny_home_dirs` forbid secrets. Ask and deny always win over allow.
 - **`core/guard/guard.py`** decides allow / ask / deny for each command, for every tool. The gaps it cannot see (base64, commands
   built inside a script) are listed in `tests/test_guard.py` (`KnownGaps`). Claude also gets an OS-level sandbox from `policy.json`.
-  A command that asks to leave the sandbox is off by default (`sandbox.allow_unsandboxed_commands`); when on, each exit still asks with a `🔴 high risk` label.
+  A command that asks to leave the sandbox is off by default (`sandbox.allow_unsandboxed_commands`). When on, an exit runs
+  without asking and goes to the action log, unless it earns an ask anyway, writes outside the current folder / `dev_root` /
+  tmp / `allow_write` (`🔴 outside-sandbox-write`), or matches `unsandboxed_ask_commands` (the setup's own installer).
 
 ## What it installs in each tool
 | | Claude Code | OpenCode | Codex |
@@ -194,6 +199,8 @@ Put your own rules in a layer (a folder with the files below); `core/` stays unt
 |---|---|
 | `ask_commands` | Shell commands that need your OK. Globs: `*` matches anything. |
 | `allow_commands` | Shell commands that run without asking (keep them read-only). |
+| `log_commands` | Shell commands that run without asking but are listed in the receipt's action log (local commits, installs). |
+| `unsandboxed_ask_commands` | Shell commands that ask only when the call leaves the sandbox (the setup's installer). |
 | `deny_files` / `deny_home_dirs` | Secrets that are never read (file name globs, home folders). |
 | `protected_paths` | Files the agent cannot edit without asking (use `{{AI_SETUP}}` for this repo). |
 | `ask_mcp_tools` | MCP tools (`server.tool`, globs) that ask first. |

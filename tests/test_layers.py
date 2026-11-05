@@ -141,7 +141,7 @@ class Policy(WithFixtureLayers):
 
     def test_core_alone_asks_for_git_and_github_writes(self):
         core = layers.compose_policy(ROOT, ["core"])
-        for c in ["git commit -m x", "git push", "gh pr create", "gh issue comment 1 -b x", "rm -rf src"]:
+        for c in ["git tag v1", "git push", "gh pr create", "gh issue comment 1 -b x", "rm -rf src"]:
             self.assertEqual(self.decide(core, c), "ask", c)
         self.assertEqual(self.decide(core, "git status"), "allow")
 

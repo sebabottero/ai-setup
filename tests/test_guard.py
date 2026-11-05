@@ -2,6 +2,7 @@
 import os, subprocess, sys, tempfile, unittest
 
 os.environ["AI_SETUP_GUARD_LOG"] = "off"  # the hook and plugin tests below run the guard for real: keep them out of ~/.ai-setup
+os.environ["AI_SETUP_ACTIONS_LOG"] = "off"  # and out of ~/Dev/logs/actions.log
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "core", "guard"))
@@ -28,7 +29,7 @@ class RiskLabels(unittest.TestCase):
             self.assertTrue(reason(c).startswith("🔴 high risk: "), c)
 
     def test_medium_risk_asks(self):
-        for c in ["git commit -m x", "git tag v1", "git -c alias.p=push p origin main", "gh pr create --fill"]:
+        for c in ["git tag v1", "git -c alias.p=push p origin main", "gh pr create --fill"]:
             self.assertTrue(reason(c).startswith("🟡 medium risk: "), c)
 
     def test_a_denied_secret_is_high_risk(self):
@@ -51,19 +52,42 @@ class RiskLabels(unittest.TestCase):
 
 
 class OutsideSandbox(unittest.TestCase):
-    def judge(self, command, unsandboxed=True):
-        return guard.decide({"tool": "bash", "command": command, "cwd": ROOT, "unsandboxed": unsandboxed}, POLICY)
+    """Leaving the sandbox runs on its own (and goes to the action log) unless the command earns an ask anyway."""
+    def judge(self, command, unsandboxed=True, cwd=ROOT):
+        return guard.decide({"tool": "bash", "command": command, "cwd": cwd, "unsandboxed": unsandboxed}, POLICY)
 
-    def test_leaving_the_sandbox_always_asks_and_is_high_risk(self):
-        decision, reason = self.judge("touch ~/x")
-        self.assertEqual(decision, "ask")
-        self.assertTrue(reason.startswith("🔴 high risk: "))
-        self.assertIn("outside the sandbox", reason)
+    def test_harmless_commands_run_without_asking(self):
+        S = "/private/tmp/claude-501/x/scratchpad"
+        for c in ['"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --screenshot=out.png x.html',
+                  f"mkdir -p {S}/fontcheck && cp ~/Dev/a.png {S}/fontcheck/ && ffmpeg -y -i a.mp4 {S}/b.png",
+                  "cd ~/Dev/android-counter && source ./env.sh && emulator -list-avds",
+                  "cd ~/Dev/app && cat >> env.sh <<'E'\nexport X=1\nE", "rclone copy a.apk GDrive:APKs/",
+                  "brew install openjdk@17", "uv tool install 'markitdown[all]'", "echo x > $TMPDIR/a", "echo x > $S/a"]:
+            self.assertEqual(guard.decide({"tool": "bash", "command": c, "cwd": os.path.expanduser("~/Dev/repos/x"),
+                                           "unsandboxed": True}, dict(POLICY, dev_root="~/Dev")), ("allow", ""), c)
+
+    def test_relative_writes_follow_cd(self):
+        self.assertEqual(self.judge("cd ~/.claude && echo x > settings.json")[0], "ask")
+        self.assertEqual(self.judge("cd /tmp && echo x > a.txt")[0], "allow")
+
+    def test_writing_outside_the_safe_zone_asks_and_is_high_risk(self):
+        for c in ["touch ~/x", "echo x >> ~/.zshrc", "cp a.json ~/.claude/settings.json", "mkdir -p /usr/local/x",
+                  "sed -i '' s/a/b/ /etc/hosts", "echo x | tee ~/.config/app.json", "ln -s a ~/bin/a", "echo x>/opt/a"]:
+            decision, reason = self.judge(c)
+            self.assertEqual(decision, "ask", c)
+            self.assertTrue(reason.startswith("🔴 high risk: "), c)
+            self.assertIn("outside the sandbox", reason)
+
+    def test_the_setups_installer_asks_outside_the_sandbox_only(self):
+        for c in ["./install.sh", "bash install.sh --layer personal", "cd ~/Dev/repos/ai-setup && ./install.sh 2>&1 | tail -5"]:
+            self.assertEqual(self.judge(c)[0], "ask", c)
+        self.assertEqual(self.judge("./install.sh --dry-run", unsandboxed=False)[0], "allow")
 
     def test_the_commands_own_reason_is_kept(self):
-        decision, reason = self.judge("git commit -m x")
+        decision, reason = self.judge("git push origin main")
         self.assertEqual(decision, "ask")
-        self.assertIn("git commit", reason)
+        self.assertIn("git push", reason)
+        self.assertIn("outside the sandbox", reason)
 
     def test_inside_the_sandbox_nothing_changes(self):
         self.assertEqual(self.judge("touch ~/x", unsandboxed=False), ("allow", ""))
@@ -75,24 +99,25 @@ class OutsideSandbox(unittest.TestCase):
         self.assertEqual(guard.judge({"tool": "bash", "command": "ls", "unsandboxed": True}, POLICY)[2], "outside-sandbox")
 
     def test_claude_hook_passes_the_flag(self):
-        run = lambda extra: subprocess.run([sys.executable, "-I", os.path.join(ROOT, "adapters", "claude", "hooks", "policy_guard.py")],
-                                            input='{"tool_name": "Bash", "tool_input": {"command": "ls"%s}}' % extra,
-                                            capture_output=True, text=True).stdout
-        self.assertIn("outside the sandbox", run(', "dangerouslyDisableSandbox": true'))
-        self.assertEqual(run(""), "")
-        self.assertEqual(run(', "dangerouslyDisableSandbox": false'), "")
+        run = lambda cmd, extra: subprocess.run([sys.executable, "-I", os.path.join(ROOT, "adapters", "claude", "hooks", "policy_guard.py")],
+                                                 input='{"tool_name": "Bash", "tool_input": {"command": "%s"%s}}' % (cmd, extra),
+                                                 capture_output=True, text=True).stdout
+        self.assertIn("outside the sandbox", run("touch ~/x", ', "dangerouslyDisableSandbox": true'))
+        self.assertEqual(run("touch ~/x", ""), "")
+        self.assertEqual(run("touch ~/x", ', "dangerouslyDisableSandbox": false'), "")
+        self.assertEqual(run("ls", ', "dangerouslyDisableSandbox": true'), "")
 
 
 class Asks(unittest.TestCase):
     def test_git_state_changes(self):
-        for c in ["git push origin main", "git -C /repo commit -m x", "FOO=1 git reset --hard", "echo ok && git rebase main",
+        for c in ["git push origin main", "git -C /repo tag v1", "FOO=1 git reset --hard", "echo ok && git rebase main",
                   "sudo git push", "bash -c 'git push'", "git commit-tree HEAD^{tree} -m x"]:
             self.assertEqual(decision(c), "ask", c)
 
     def test_git_global_options_before_the_subcommand(self):
-        for c in ["git --no-pager push", "git -c user.name=x commit -m y", "git -P commit -m y",
+        for c in ["git --no-pager push", "git -c user.name=x push", "git -P merge main",
                   "git --git-dir=.git push", "git --git-dir .git --work-tree . push", 'git -C "my dir" push',
-                  "git -C 'a b' -c core.x=1 --no-pager commit -m z"]:
+                  "git -C 'a b' -c core.x=1 --no-pager tag v2"]:
             self.assertEqual(decision(c), "ask", c)
 
     def test_inline_git_alias(self):
@@ -126,7 +151,7 @@ class Asks(unittest.TestCase):
             self.assertEqual(decision(c), "ask", c)
 
     def test_commands_hidden_inside_a_shell(self):
-        for c in ["bash -c 'cd repo && git push'", 'sh -c "echo ok; git commit -m x"', "zsh -lc 'git reset --hard'",
+        for c in ["bash -c 'cd repo && git push'", 'sh -c "echo ok; git tag v1"', "zsh -lc 'git reset --hard'",
                   "bash -c \"bash -c 'git push'\"", 'eval "git push origin main"', "eval git push", "sudo bash -c 'rm -rf src'"]:
             self.assertEqual(decision(c), "ask", c)
 
@@ -137,6 +162,12 @@ class Asks(unittest.TestCase):
     def test_inline_code_that_runs_commands(self):
         for c in ["python3 -c \"import subprocess;subprocess.run(['git','pu'+'sh'])\"", "python3 -c 'import os; os.system(\"ls\")'",
                   "node -e \"require('child_process').execSync('x')\"", "python3 - <<'EOF'\nimport subprocess\nEOF"]:
+            self.assertEqual(decision(c), "ask", c)
+
+    def test_gh_writes_that_look_like_reads(self):
+        for c in ["gh api repos/o/r/issues -f title=x", "gh api --method DELETE repos/o/r", "gh api -XPATCH repos/o/r",
+                  "gh api graphql -F query=@q.graphql", "gh api repos/o/r/contents/x --input body.json",
+                  "gh auth token", "gh auth login", "gh repo create o/new --private", "gh repo edit --visibility public"]:
             self.assertEqual(decision(c), "ask", c)
 
     def test_mcp_writes(self):
@@ -163,6 +194,15 @@ class Allows(unittest.TestCase):
     def test_rm_inside_tmp(self):
         for c in ["rm /tmp/x", "rm -rf /private/tmp/claude-502/scratch/out", "rm -rf $TMPDIR/build", "rm ${TMPDIR}/a /tmp/b",
                   "rmdir /tmp/x", "find /tmp/x -name '*.o' -delete", "find . -name '*.cs'"]:
+            self.assertEqual(decision(c), "allow", c)
+
+    def test_local_commit_runs_and_push_still_asks(self):
+        self.assertEqual(decision("git commit -m x"), "allow")
+        self.assertEqual(decision("git commit -m x && git push"), "ask")
+
+    def test_gh_reads(self):
+        for c in ["gh repo list sebabottero --limit 50", "gh repo view o/r --json description",
+                  "gh api 'repos/o/r/git/trees/HEAD?recursive=true' --jq '.tree[].path'", "gh auth status"]:
             self.assertEqual(decision(c), "allow", c)
 
     def test_tea_reads(self):
@@ -254,6 +294,49 @@ class Log(unittest.TestCase):
     def test_a_log_that_cannot_be_written_does_not_change_the_decision(self):
         os.environ["AI_SETUP_GUARD_LOG"] = "/proc/nope/guard.log" if sys.platform.startswith("linux") else "/dev/null/x/guard.log"
         self.assertEqual(guard.decide({"tool": "bash", "command": "git push", "cwd": ROOT}, POLICY, log=True)[0], "ask")
+
+
+class ActionLog(unittest.TestCase):
+    """AI_SETUP_ACTIONS_LOG=<file>: what the task receipt lists. Notable commands only, with risk, secrets redacted."""
+    def setUp(self):
+        self.path = os.path.join(tempfile.mkdtemp(), "actions.log")
+        os.environ["AI_SETUP_ACTIONS_LOG"] = self.path
+        self.addCleanup(os.environ.__setitem__, "AI_SETUP_ACTIONS_LOG", "off")
+
+    def run_(self, command, unsandboxed=False):
+        guard.decide({"tool": "bash", "command": command, "cwd": ROOT, "unsandboxed": unsandboxed, "session": "s1"}, POLICY, log=True)
+
+    def lines(self):
+        if not os.path.exists(self.path):
+            return []
+        with open(self.path) as f:
+            return [l.rstrip("\n").split("\t") for l in f]
+
+    def test_reads_and_sandboxed_work_are_not_listed(self):
+        for c in ["git status", "ls -la", "npm run lint", "mkdir -p build"]:
+            self.run_(c)
+        self.assertEqual(self.lines(), [])
+
+    def test_notable_commands_are_listed_with_risk(self):
+        self.run_("git commit -m 'feat: x'")
+        self.run_("ffmpeg -i a.mp4 b.png", unsandboxed=True)
+        self.run_("git push origin main")
+        rows = [(l[1], l[2], l[3], l[5]) for l in self.lines()]
+        self.assertEqual(rows, [("s1", "LOW", "ran", "git commit -m 'feat: x'"),
+                                ("s1", "MEDIUM", "ran", "ffmpeg -i a.mp4 b.png"),
+                                ("s1", "HIGH", "asked", "git push origin main")])
+
+    def test_secrets_are_redacted(self):
+        self.run_("curl -H 'Authorization: Bearer abc123' https://x TOKEN=s3cr3t ghp_" + "a" * 36, unsandboxed=True)
+        text = self.lines()[0][5]
+        for leaked in ["abc123", "s3cr3t", "ghp_aaaa"]:
+            self.assertNotIn(leaked, text)
+
+    def test_long_commands_fit_one_line(self):
+        self.run_("echo " + "word " * 100 + "\n echo two", unsandboxed=True)
+        text = self.lines()[0][5]
+        self.assertLessEqual(len(text), 240)
+        self.assertNotIn("\n", text)
 
 
 class FailsClosed(unittest.TestCase):

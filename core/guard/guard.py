@@ -36,7 +36,7 @@ INLINE_CODE = re.compile(r"\b(?:python3?|node|ruby|perl)\s+(?:(?:-\S+\s+)*-[ce]\
 RUNS_COMMANDS = re.compile(r"subprocess|\bos\.(?:system|popen|exec\w*|spawn\w*)|child_process|execSync|spawnSync|\bsystem\(|\bpopen\(|\bexec\(")
 # risk shown at the start of every ask / deny reason, by the rule that decided; a rule not listed is medium.
 # The guard only labels what it asks about, so there is no low: an allowed command carries no label.
-HIGH_RISK = {"outside-sandbox", "secret", "secret-glob", "protected_paths", "pipe-to-shell", "rm-outside-tmp", "git push *", "git push --force*",
+HIGH_RISK = {"outside-sandbox", "outside-sandbox-write", "secret", "secret-glob", "protected_paths", "pipe-to-shell", "rm-outside-tmp", "git push *", "git push --force*",
              "git push -f*", "git reset --hard*", "git clean *", "git rebase *", "git restore *", "git checkout -- *",
              "git branch -D *", "git stash drop*", "git stash clear*", "git worktree remove*", "git update-ref*",
              "git commit-tree*", "rm -rf *", "rm -fr *", "gh pr merge*", "gh release create*"}
@@ -237,12 +237,76 @@ def bash(command, policy, cwd=None, depth=0):
     return "allow", "", "-"
 
 
+def write_targets(seg):
+    """Paths a simple command writes to: redirections, the destination of cp / mv / ln / install / rsync,
+    the arguments of mkdir / touch / chmod / chown / truncate / tee, and the file of sed -i."""
+    words = re.sub(r"(\d*>>?)", r" \1 ", seg).split()  # echo x>/opt/a → echo x > /opt/a
+    found = []
+    for i, w in enumerate(words):
+        m = re.fullmatch(r"\d*(>>?)(\S*)", w)
+        if m:
+            target = m.group(2) or (words[i + 1] if i + 1 < len(words) else "")
+            if target and not target.startswith("&"):
+                found.append(target)
+    cmd = os.path.basename(words[0]) if words else ""
+    args = [w for w in words[1:] if not w.startswith("-") and not re.match(r"\d*>", w)]
+    if cmd in ("cp", "mv", "ln", "install", "rsync") and len(args) >= 2:
+        found.append(args[-1])
+    elif cmd in ("mkdir", "touch", "chmod", "chown", "truncate", "tee"):
+        found += args[1:] if cmd in ("chmod", "chown") else args
+    elif cmd == "sed" and any(w.startswith("-i") for w in words[1:]) and args:
+        found.append(args[-1])
+    return found
+
+
+def write_outside_safe_zone(command, policy, cwd=None):
+    """Outside the sandbox nothing walls the disk: the first written path that is not where the sandbox lets Bash write
+    (the current folder, the work folder dev_root, tmp, sandbox.allow_write caches). A relative path is judged from the
+    folder the last `cd` left; a path built from a variable other than HOME / TMPDIR cannot be judged: skipped."""
+    home = os.path.expanduser("~")
+    cwd = os.path.normpath(cwd or os.getcwd())
+    safe = [os.path.expanduser(p).rstrip("/") for p in policy.get("sandbox", {}).get("allow_write", [])]
+    safe += [p.rstrip("/") for p in TMP_PREFIXES if not p.startswith("$")] + ["/dev"]
+    safe += [p for p in (os.path.expanduser(layers.dev_root(policy)), cwd) if p != home]
+    cur = cwd
+    for part in re.split(r"&&|\|\||[;\n]", NO_OUTPUT.sub("", normalize(command))):
+        words = words_of(part)
+        if words[:1] == ["cd"]:
+            target = os.path.expanduser(words[1]) if len(words) > 1 else home
+            cur = target if target.startswith("$") else os.path.normpath(os.path.join(cur, target))
+            continue
+        for seg in segments(part):
+            for word in write_targets(seg):
+                if word.startswith("$") or cur.startswith("$") and not word.startswith(("/", "~")):
+                    continue  # $TMPDIR/x, $S/x, or relative to a folder held in a variable
+                full = os.path.normpath(os.path.join(cur, os.path.expanduser(word)))
+                if not any(full == s or full.startswith(s + "/") for s in safe):
+                    return word.replace(home, "~")
+    return None
+
+
+def unsandboxed(command, policy, cwd, decision, reason, rule):
+    """A call that leaves the OS sandbox: it runs on its own (and is listed in the receipt) unless it also earns an ask,
+    writes outside the safe zone, or is one of the policy's unsandboxed_ask_commands (the setup's own installer)."""
+    note = "runs outside the sandbox, which removes the OS wall"
+    if decision == "ask":
+        return "ask", f"{note}. Also: {reason}", rule
+    target = write_outside_safe_zone(command, policy, cwd)
+    if target:
+        return "ask", f"{note} and writes to '{target}', outside the work folder and tmp: confirm", "outside-sandbox-write"
+    for seg in segments(command):
+        for pattern in policy.get("unsandboxed_ask_commands", []):
+            if fnmatch.fnmatchcase(seg, pattern) or fnmatch.fnmatchcase(seg, pattern.rstrip(" *")):
+                return "ask", f"'{seg}' {note} (policy: unsandboxed_ask_commands {pattern}): confirm", "outside-sandbox"
+    return "allow", "", "outside-sandbox"
+
+
 def judge(event, policy):
     if event.get("tool") == "bash":
-        decision, reason, rule = bash(event.get("command", ""), policy, event.get("cwd"))
-        if event.get("unsandboxed") and decision != "deny":  # the call asked to leave the OS sandbox: always the user's call
-            note = "asks to run outside the sandbox, which removes the OS wall: confirm"
-            return "ask", f"{note}. Also: {reason}" if decision == "ask" else note, "outside-sandbox"
+        command, cwd = event.get("command", ""), event.get("cwd")
+        decision, reason, rule = bash(command, policy, cwd)
+        if event.get("unsandboxed") and decision != "deny":
+            return unsandboxed(command, policy, cwd, decision, reason, rule)
         return decision, reason, rule
     for pattern in policy["ask_mcp_tools"] if event.get("tool") == "mcp" else ():
         if fnmatch.fnmatchcase(event.get("name", ""), pattern):
@@ -266,12 +330,64 @@ def log_decision(tool, decision, rule):
         pass
 
 
+SECRET_VALUE = re.compile(r"(?i)\b(authorization:\s*(?:bearer|basic|token)?\s*|bearer\s+|"
+                          r"[\w-]*(?:token|secret|passw(?:or)?d|api[_-]?key)[\w-]*\s*[=:]\s*)([^\s'\"]+)|"
+                          r"\b(gh[pousr]_\w+|github_pat_\w+|sk-[\w-]{10,}|xox[abp]-[\w-]+|AKIA\w{12,})\b")
+
+
+def redact(command):
+    """The command as it goes into the action log: secret-looking values replaced by ***, one line, at most 240 chars."""
+    text = SECRET_VALUE.sub(lambda m: (m.group(1) + "***") if m.group(1) else "***", command)
+    text = re.sub(r"\b[A-Za-z0-9+/_-]{40,}={0,2}", "***", text)  # long opaque strings: keys, tokens
+    text = " ; ".join(l.strip() for l in text.splitlines() if l.strip())
+    return text if len(text) <= 240 else text[:237] + "..."
+
+
+def notable(event, policy, decision, rule):
+    """(risk, rule) of a command the user should see in the receipt, or None. Asked and denied ones are listed with
+    their risk; an allowed one only when it ran outside the sandbox or matches the policy's log_commands."""
+    if event.get("tool") != "bash":
+        return (risk_of(decision, rule), rule) if decision != "allow" else None
+    if decision != "allow":
+        return risk_of(decision, rule), rule
+    if rule == "outside-sandbox":
+        return "medium", rule
+    for seg in segments(event.get("command", "")):
+        for pattern in policy.get("log_commands", []):
+            if fnmatch.fnmatchcase(seg, pattern) or fnmatch.fnmatchcase(seg, pattern.rstrip(" *")):
+                return "low", pattern
+    return None
+
+
+def log_action(event, decision, risk, rule):
+    """One line per notable command in AI_SETUP_ACTIONS_LOG (default ~/Dev/logs/actions.log; "off" disables): time,
+    session, risk, what happened (ran / asked / denied), rule, redacted command. The task receipt reads it."""
+    path = os.path.expanduser(os.environ.get("AI_SETUP_ACTIONS_LOG") or "~/Dev/logs/actions.log")
+    if path == "off":
+        return
+    what = {"allow": "ran", "ask": "asked"}.get(decision, decision)
+    text = redact(event.get("command", "")) if event.get("tool") == "bash" else event.get("name", "?")
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if os.path.exists(path) and os.path.getsize(path) > 1_000_000:
+            os.replace(path, path + ".1")
+        with open(path, "a") as f:
+            f.write("\t".join([datetime.datetime.now().isoformat(timespec="seconds"), event.get("session") or "?",
+                               risk.upper(), what, rule, text]) + "\n")
+    except OSError:
+        pass
+
+
 def decide(event, policy=None, log=False):
     """(decision, reason). log=True is for the adapters that answer a real agent; tests and callers stay quiet."""
-    decision, reason, rule = judge(event, policy or load())
+    policy = policy or load()
+    decision, reason, rule = judge(event, policy)
     reason = labelled(decision, reason, rule)
     if log:
         log_decision(event.get("tool", "?"), decision, rule)
+        hit = notable(event, policy, decision, rule)
+        if hit:
+            log_action(event, decision, *hit)
     return decision, reason
 
 
