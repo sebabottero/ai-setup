@@ -140,6 +140,16 @@ class Asks(unittest.TestCase):
                   "python3 -c \"open('core/guard/guard.py','w')\"", "tee ~/.config/opencode/opencode.json < x"]:
             self.assertEqual(decision(c), "ask", c)
 
+    def test_inline_code_that_writes_the_setups_own_rules(self):
+        for c in ["python3 -c \"open('core/policy.json', mode='a').write('x')\"",
+                  "python3 -c \"import pathlib;pathlib.Path('core/policy.json').write_text('{}')\"",
+                  "python3 -c \"import json;json.dump({}, open('core/policy.json','w+'))\"",
+                  "python3 -c \"import os;os.remove('core/guard/guard.py')\"",
+                  "python3 -c \"import shutil;shutil.copy('x','core/policy.json')\"",
+                  "node -e \"require('fs').writeFileSync('core/policy.json','{}')\"",
+                  "python3 - <<'EOF'\nopen('core/policy.json','w').write('{}')\nEOF"]:
+            self.assertEqual(decision(c), "ask", c)
+
     def test_rm_outside_tmp(self):
         for c in ["rm file.txt", "rm -f src/a.cs", "rm -rf build", "rm -r /Users/x/repo", "rm /tmp/../etc/hosts",
                   "rm -rf $S/out", "rm /tmp", "sudo rm -rf /var/x", "rm /tmp/a /home/x/b", "find . -exec rm {} ;",
@@ -237,7 +247,13 @@ class Allows(unittest.TestCase):
             self.assertEqual(decision(c), "allow", c)
 
     def test_reading_the_setups_own_rules(self):
-        for c in [f"cat {ROOT}/core/policy.json", "grep -n ask core/policy.json", "./install.sh --dry-run"]:
+        for c in [f"cat {ROOT}/core/policy.json", "grep -n ask core/policy.json", "./install.sh --dry-run",
+                  "python3 -I -c \"import json;p=json.load(open('core/policy.json'));print(p.keys())\"",
+                  "python3 -c \"import sys;sys.path.insert(0,'core/guard');import guard;print(guard.HIGH_RISK)\"",
+                  "python3 -c \"print(open('build/policy.json', 'r').read()[:100])\"",
+                  "python3 -c \"import sys,json;sys.path.insert(0,'core/guard');rows=json.load(open('/private/tmp/wax/rows.json'))\"",
+                  "node -e \"console.log(require('./core/policy.json'))\"",
+                  "python3 - <<'EOF'\nimport json\nprint(json.load(open('core/policy.json')))\nEOF"]:
             self.assertEqual(decision(c), "allow", c)
 
 

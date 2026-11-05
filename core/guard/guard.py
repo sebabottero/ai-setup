@@ -20,7 +20,14 @@ GLOB = re.compile(r"[*?\[]")
 GIT_OPTS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix"}
 # a write to a protected path: redirection, in-place edits, file moves, or code run inline
 WRITES = re.compile(r"(?<![-=])>(?!=)|\bsed\b[^|;&]*\s-i|\btee\b|\bmv\b|\bcp\b|\brm\b|\btruncate\b|\bchmod\b|\bln\b|\bperl\b|"
-                    r"\b(python3?|node|ruby)\s+(-\S+\s+)*-[ce]\b|\bgit\s+(checkout|restore|apply|stash)\b")
+                    r"\bgit\s+(checkout|restore|apply|stash)\b")
+# inline code (python -c, node -e, a heredoc) only counts as a write when the code looks like it writes: reading the
+# setup's own rules with json.load(open('core/policy.json')) is not a change
+CODE_WRITES = re.compile(r"""open\([^,)]*,\s*['"][rbt]*[wax+][rwabxt+]*['"]|\bmode\s*=\s*['"][rbt]*[wax+]|\.write(?:_text|_bytes|lines)?\(|"""
+                         r"""\bjson\.dump\(|\bos\.(?:remove|unlink|rename|replace|rmdir|removedirs|truncate|chmod|symlink|link)\b|"""
+                         r"""\bshutil\.|\.unlink\(|\.(?:rename|touch|mkdir|rmdir|symlink_to|chmod)\(|"""
+                         r"""\bfs\w*\.(?:write|append|unlink|rm|rename|copy|truncate|chmod|symlink)\w*|\bFile(?:Utils)?\.\w*(?:write|delete|rm|mv|cp)|"""
+                         r"""\b(?:write|append|copy)File(?:Sync)?\(|\b(?:unlink|rm|rmdir|rename|truncate|chmod|symlink|mkdir)Sync\(""")
 NO_OUTPUT = re.compile(r"\d*>&\d+|\d*>>?\s*/dev/(null|stderr|stdout)")  # 2>&1, >/dev/null: not a file write
 # words that may come before the real command: wrappers (sudo git push), shell keywords, and their flags
 WRAPPERS = {"eval", "sudo", "xargs", "env", "time", "nohup", "command", "exec", "nice", "timeout", "builtin", "bash", "sh", "zsh",
@@ -180,7 +187,13 @@ def secret_after_cd(command, policy, cwd=None):
 
 def protected(command, policy, cwd=None):
     """A protected path (the setup's own rules) that the command looks like it writes to."""
-    if not WRITES.search(NO_OUTPUT.sub("", command)):
+    plain = NO_OUTPUT.sub("", command)
+    inline = INLINE_CODE.search(command) or re.search(r"\b(?:python3?|node|ruby)\s+(?:-\S+\s+)*-[ce]\b", command)
+    if inline:  # judge the code by what it calls, and the shell around it by WRITES (its text holds > and the like)
+        shell = re.sub(r"""(?s)-[ce]\s+(["']).*?(?<!\\)\1|<<-?\s*['"]?(\w+)['"]?\n.*?\n\2\b""", " ", plain)
+        if not (CODE_WRITES.search(command) or WRITES.search(shell)):
+            return None
+    elif not WRITES.search(plain):
         return None
     home = os.path.expanduser("~")
     cwd = cwd or os.getcwd()
