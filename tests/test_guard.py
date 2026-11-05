@@ -348,6 +348,14 @@ class ActionLog(unittest.TestCase):
         for leaked in ["abc123", "s3cr3t", "ghp_aaaa"]:
             self.assertNotIn(leaked, text)
 
+    def test_paths_are_kept_but_opaque_keys_are_not(self):
+        S = "/private/tmp/claude-501/-Users-botter-Dev-repos-ai-setup/1885185f-95c6-4fed-aad4-ac4adaee94d1/scratchpad"
+        for path in [S, "personal/skills/instagram-estetica/scripts/render_post.py", "~/Library/Caches/some-tool/cache-folder-x"]:
+            self.assertIn(path, guard.redact(f"cd {path} && ls"), path)
+        for key in ["Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZmdoaWprbG1ub3A", "aB3dE5fG7hJ9kL1mN3pQ5/rS7tU9vW1xY3zA5bC7dE9fG1hJ",
+                    "AbCdEfGh12345678/IjKlMnOp87654321/QrStUvWx13572468"]:
+            self.assertNotIn(key[:20], guard.redact(f"curl -d {key} https://x"), key)
+
     def test_long_commands_fit_one_line(self):
         self.run_("echo " + "word " * 100 + "\n echo two", unsandboxed=True)
         text = self.lines()[0][5]

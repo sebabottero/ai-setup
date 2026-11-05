@@ -348,10 +348,19 @@ SECRET_VALUE = re.compile(r"(?i)\b(authorization:\s*(?:bearer|basic|token)?\s*|b
                           r"\b(gh[pousr]_\w+|github_pat_\w+|sk-[\w-]{10,}|xox[abp]-[\w-]+|AKIA\w{12,})\b")
 
 
+def looks_like_path(word):
+    """A long string with slashes is kept when no part of it looks like a key: no + or =, every part under 40 chars,
+    and none of 12+ chars mixing upper case, lower case and digits (base64 does; folder names rarely do)."""
+    parts = [p for p in word.split("/") if p]
+    return "/" in word and not re.search(r"[+=]", word) and all(
+        len(p) < 40 and not (len(p) >= 12 and re.search(r"[A-Z]", p) and re.search(r"[a-z]", p) and re.search(r"\d", p))
+        for p in parts)
+
+
 def redact(command):
     """The command as it goes into the action log: secret-looking values replaced by ***, one line, at most 240 chars."""
     text = SECRET_VALUE.sub(lambda m: (m.group(1) + "***") if m.group(1) else "***", command)
-    text = re.sub(r"\b[A-Za-z0-9+/_-]{40,}={0,2}", "***", text)  # long opaque strings: keys, tokens
+    text = re.sub(r"\b[A-Za-z0-9+/_.-]{40,}={0,2}", lambda m: m.group(0) if looks_like_path(m.group(0)) else "***", text)
     text = " ; ".join(l.strip() for l in text.splitlines() if l.strip())
     return text if len(text) <= 240 else text[:237] + "..."
 

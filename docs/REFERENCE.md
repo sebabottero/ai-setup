@@ -35,7 +35,7 @@ Missing: which environment fails? (default: local)
 - **No telemetry.** The guard keeps a local log (`~/.ai-setup/guard.log`: time, decision, rule; never the command). `AI_SETUP_GUARD_LOG=off` disables it.
 - **Action log for the receipt.** `~/Dev/logs/actions.log` (`AI_SETUP_ACTIONS_LOG`, `off` disables) lists, per session, what ran
   outside the sandbox, what matched `log_commands` (local commits, installs) and every ask, with its risk. The command is kept
-  redacted (tokens, `Bearer`, `*_KEY=`, long opaque strings → `***`) and cut to 240 chars. Reads and sandboxed work are not listed.
+  redacted (tokens, `Bearer`, `*_KEY=`, long opaque strings → `***`; paths stay readable) and cut to 240 chars. Reads and sandboxed work are not listed.
 
 ## Why
 - **Seatbelt plus wall.** A regex over shell text can be fooled (base64, commands built inside a script). Those gaps are listed
