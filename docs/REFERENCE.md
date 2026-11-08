@@ -61,7 +61,7 @@ Stock tools already have permission prompts, subagents and skills. This repo add
 | Several tools | Each one has its own config format | The same rules and skills installed into Claude Code, OpenCode and Codex |
 | Ticket work | You drive each step yourself | `flow-ticket`: strong model plans, one `sub-builder` writes in its own git worktree, review, tests and checks run read-only in parallel |
 | Token cost | You find out on the bill | `coach` picks model and effort before you start; a hook warns when the context passes 100k; `usage_report.py` audits your own sessions locally |
-| Repeated processes | Ad-hoc prompts | Skills: `ticket-flow`, `validate`, `setup-commit`, `session-handoff`, `grillme`, `coach`, `pr-review-ticket` |
+| Repeated processes | Ad-hoc prompts | Skills: `ticket-flow`, `validate`, `setup-commit`, `session-handoff`, `repo-guardrails`, `grillme`, `coach`, `pr-review-ticket` |
 | New machine | Manual setup | `bootstrap.py` + `install.sh`: backup first, policy checked before writing, tests in CI |
 
 ## Install details
@@ -138,7 +138,7 @@ earlier that no layer produces any more. Rules you added by hand stay.
 |---|---|
 | `core/AGENTS.md` | Generic instructions: limits, way of working, tools |
 | `core/agents/` | `flow-ticket`, `sub-review`, `sub-builder`, `sub-tester`, `leaf-verify`, `meta-setup` |
-| `core/skills/` | `ticket-flow`, `pr-review-ticket`, `session-handoff`, `validate`, `setup-commit`, `grillme`, `coach` |
+| `core/skills/` | `ticket-flow`, `pr-review-ticket`, `session-handoff`, `repo-guardrails`, `validate`, `setup-commit`, `grillme`, `coach` |
 | `core/policy.json` | Permissions, single source |
 | `core/guard/` | Shared allow / ask / deny logic and the layer loader |
 | `adapters/` | Per-tool hooks, plugins and settings. Claude: guard hook, a context-size notice hook (info only, above 100k tokens), a Drive trace hook (logs `rclone` changes on `GDrive:` to `~/Dev/logs/drive-changes.log`, flags `sync`, `purge` and `--drive-use-trash=false`; never blocks), `tune-setup` and a re-tune reminder and `usage_report.py` (local usage summary and guard log counts, sends nothing) |

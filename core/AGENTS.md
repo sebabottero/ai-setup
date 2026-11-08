@@ -53,6 +53,9 @@ Before starting in a repo, check whether `{{DEV}}/ai-notes/<repo-name>.md` exist
 those are my personal rules for that repo (they do not go into the repo). The team's rules are in the repo itself
 (AGENTS.md, CLAUDE.md, CONTRIBUTING) and win over the generic ones here.
 
+## Repos without agent rules
+When starting in a repo with no `AGENTS.md`, offer the `repo-guardrails` skill (offer only, never run it unasked).
+
 ## Compact instructions
 When compacting keep: modified files, test/build commands, decisions made,
 success criteria, what is out of scope and the active branch or worktree.
