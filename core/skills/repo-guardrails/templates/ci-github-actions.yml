@@ -1,0 +1,14 @@
+# Minimal CI: runs the same command as "Done" in AGENTS.md. No secrets, no deploy.
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # <setup step for your language, pinned, e.g. actions/setup-node@v4 / actions/setup-java@v4 / actions/setup-python@v5>
+      - run: <exact verify command>

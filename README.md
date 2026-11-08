@@ -12,6 +12,7 @@ One folder configures Claude Code, OpenCode and Codex the same way, on every mac
 | 🛡 **Asks before anything hard to undo** | One `policy.json` and one guard decide `allow` / `ask` / `deny` for every shell command. Secrets are a hard `deny`. Claude also gets an OS sandbox from the same policy. |
 | 💸 **Spends fewer tokens** | `coach` picks model and effort before you start, and flags big PDFs/docs to convert first. A hook warns when the context passes 100k. `usage_report.py` audits your own sessions, locally. |
 | 🔀 **Same rules in every tool** | Write rules, skills and agents once. They install into Claude Code, OpenCode and Codex. Your private bits live in layers, not in a fork. |
+| 🧱 **Repos that keep their rules** | `repo-guardrails` prepares any repo with a short `AGENTS.md`, a one-line `CLAUDE.md`, architecture tests that fail the build and a minimal CI. Only the file-scan test is verified; other languages are marked untested. |
 | 🎫 **One writer per ticket** | `flow-ticket` plans, a single `sub-builder` writes in its own git worktree, and review, tests and checks run read-only in parallel. |
 
 ## See it work
