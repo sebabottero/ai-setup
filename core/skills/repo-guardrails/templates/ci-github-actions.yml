@@ -10,5 +10,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the diff-size step compares against the base branch
       # <setup step for your language, pinned, e.g. actions/setup-node@v4 / actions/setup-java@v4 / actions/setup-python@v5>
       - run: <exact verify command>
+      - name: Warn on a large diff (never fails)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          # diff-size:begin
+          if ! stat=$(git diff --numstat "$BASE"...HEAD); then
+            echo "::notice::Could not compare against $BASE: diff size not checked."
+            exit 0
+          fi
+          changed=$(printf '%s\n' "$stat" | awk '{n += $1 + $2} END {print n + 0}')
+          if [ "$changed" -gt 400 ]; then
+            echo "::warning::This PR changes $changed lines (more than 400). Split it into smaller PRs so each one gets a real review."
+          fi
+          # diff-size:end
+
+  # Optional end-to-end job. To enable it: uncomment, replace the setup and the command with the
+  # project's real e2e run (the one that passes locally), and push. Keep it test-only, no secrets.
+  # e2e:
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     # <setup step for your language, pinned>
+  #     - run: <exact e2e command, e.g. npx playwright install --with-deps && npm run e2e>
