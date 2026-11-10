@@ -1,5 +1,6 @@
 """core/guard/guard.py: what it must ask or deny, and the gaps only the OS sandbox closes."""
 import os, subprocess, sys, tempfile, unittest
+from unittest import mock
 
 os.environ["AI_SETUP_GUARD_LOG"] = "off"  # the hook and plugin tests below run the guard for real: keep them out of ~/.ai-setup
 os.environ["AI_SETUP_ACTIONS_LOG"] = "off"  # and out of ~/Dev/logs/actions.log
@@ -123,7 +124,8 @@ class Asks(unittest.TestCase):
     def test_inline_git_alias(self):
         self.assertEqual(decision("git -c alias.p=push p origin main"), "ask")
 
-    def test_platform_writes(self):
+    @mock.patch.object(guard, "gh_pr_info", return_value=None)  # the merge gate would run the real gh
+    def test_platform_writes(self, _):
         for c in ["gh pr merge 12 --squash", "gh pr create --fill", "az boards work-item update --id 1 --state Done",
                   "az repos pr create --title x", "tea pr create", "gh api -X POST repos/o/r/git/refs",
                   "gh repo delete o/r --yes", "gh release delete v1", "gh workflow run ci.yml", "gh secret set X",
@@ -361,6 +363,330 @@ class ActionLog(unittest.TestCase):
         text = self.lines()[0][5]
         self.assertLessEqual(len(text), 240)
         self.assertNotIn("\n", text)
+
+
+class MergeGate(unittest.TestCase):
+    """git merge into the default branch / gh pr merge need a review report at <dev_root>/reviews/<repo>/<branch>.md."""
+    def setUp(self):
+        patch = mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"})  # the user's git config must not leak in
+        patch.start()
+        self.addCleanup(patch.stop)
+        tmp = os.path.realpath(tempfile.mkdtemp())
+        self.dev, self.repo, self.other = os.path.join(tmp, "dev"), os.path.join(tmp, "repo"), os.path.join(tmp, "other")
+        os.makedirs(self.repo), os.makedirs(self.other)
+        self.policy = dict(POLICY, dev_root=self.dev)
+        self.git("init", "-q", "-b", "main")
+        self.commit("base")
+        self.git("checkout", "-q", "-b", "x")
+        self.old = self.commit("work")
+        self.report = os.path.join(self.dev, "reviews", "repo", "x.md")
+
+    def git(self, *args):
+        return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@e", *args], cwd=self.repo,
+                              capture_output=True, text=True, check=True).stdout.strip()
+
+    def commit(self, name):
+        with open(os.path.join(self.repo, name), "w") as f:
+            f.write(name)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", name)
+        return self.git("rev-parse", "HEAD")
+
+    def write_report(self, commit, tree="", verdict="PASS"):
+        os.makedirs(os.path.dirname(self.report), exist_ok=True)
+        with open(self.report, "w") as f:
+            f.write(f"Repo: repo\nBranch: x\nCommit: {commit}\nTree: {tree}\nVerdict: {verdict}\n\nbody\n")
+
+    def judge(self, command, cwd=None, log=False):
+        return guard.decide({"tool": "bash", "command": command, "cwd": cwd or self.repo}, self.policy, log=log)
+
+    def on_main(self):
+        self.git("checkout", "-q", "main")
+
+    def test_no_report_denies_and_names_sub_review(self):
+        self.on_main()
+        d, why = self.judge("git merge x")
+        self.assertEqual(d, "deny")
+        self.assertIn("sub-review", why)
+        self.assertIn(self.report, why)
+
+    def test_a_report_for_an_older_commit_is_stale(self):
+        self.write_report(self.old)
+        self.commit("more")
+        self.on_main()
+        d, why = self.judge("git merge x")
+        self.assertEqual(d, "deny")
+        self.assertIn("report is stale", why)
+        self.assertIn(self.old[:7], why)
+        self.assertIn(self.git("rev-parse", "--short=7", "x"), why)
+
+    def test_a_fresh_report_asks_and_the_log_names_it(self):
+        self.write_report(self.old, verdict="FAIL")
+        self.on_main()
+        log = os.path.join(self.dev, "actions.log")
+        os.environ["AI_SETUP_ACTIONS_LOG"] = log
+        self.addCleanup(os.environ.__setitem__, "AI_SETUP_ACTIONS_LOG", "off")
+        d, why = self.judge("git merge x", log=True)
+        self.assertEqual(d, "ask")  # a FAIL verdict is shown, not denied
+        self.assertIn("FAIL", why)
+        self.assertEqual(guard.judge({"tool": "bash", "command": "git merge x", "cwd": self.repo}, self.policy)[2], "merge-reviewed")
+        with open(log) as f:
+            line = f.read().strip()
+        self.assertTrue(line.endswith("[report: " + self.report.replace(os.path.expanduser("~"), "~") + "]"), line)
+
+    def test_merging_main_into_a_feature_branch_does_not_apply_the_gate(self):
+        d, _ = self.judge("git merge main")
+        self.assertEqual(d, "ask")
+        self.assertEqual(guard.judge({"tool": "bash", "command": "git merge main", "cwd": self.repo}, self.policy)[2], "git merge *")
+
+    def test_a_guard_crash_falls_back_to_ask(self):
+        import io, json, runpy
+        self.on_main()
+        event = {"tool_name": "Bash", "tool_input": {"command": "git merge x"}, "cwd": self.repo}
+        out = io.StringIO()
+        with mock.patch.object(guard, "merge_gate", side_effect=RuntimeError("boom")), \
+                mock.patch("sys.stdin", io.StringIO(json.dumps(event))), mock.patch("sys.stdout", out):
+            runpy.run_path(os.path.join(ROOT, "adapters", "claude", "hooks", "policy_guard.py"), run_name="__main__")
+        self.assertEqual(json.loads(out.getvalue())["hookSpecificOutput"]["permissionDecision"], "ask")
+
+    def test_the_tree_of_reviewed_uncommitted_work_counts_as_fresh(self):
+        with open(os.path.join(self.repo, "wip"), "w") as f:  # reviewed while still uncommitted, untracked included
+            f.write("wip")
+        import review_report
+        tree = review_report.worktree_tree(self.repo)
+        self.assertFalse(os.path.exists(os.path.join(self.repo, ".git", "index.lock")))
+        self.write_report("0" * 40, tree)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "wip")
+        self.on_main()
+        self.assertEqual(self.judge("git merge x")[0], "ask")
+
+    def test_checkout_main_then_merge_is_gated_from_a_feature_branch(self):
+        self.assertEqual(self.judge("git checkout main && git merge x")[0], "deny")
+        self.assertEqual(self.judge("git switch main; git merge x")[0], "deny")
+
+    def test_cd_into_the_repo_then_merge_is_gated(self):
+        self.on_main()
+        self.assertEqual(self.judge(f"cd {self.repo} && git merge x", cwd=self.other)[0], "deny")
+        self.assertEqual(self.judge(f"git -C {self.repo} merge x", cwd=self.other)[0], "deny")
+
+    def test_merge_abort_and_friends_are_not_gated(self):
+        self.on_main()
+        for c in ["git merge --abort", "git merge --continue", "git merge --quit"]:
+            self.assertEqual(guard.judge({"tool": "bash", "command": c, "cwd": self.repo}, self.policy)[2], "git merge *", c)
+
+    def test_options_with_values_are_skipped_to_find_the_branch(self):
+        self.on_main()
+        d, why = self.judge("git merge --no-ff -m 'msg' x")
+        self.assertEqual((d, self.report in why), ("deny", True))
+
+    def test_a_sha_is_denied_so_the_report_can_be_found_by_name(self):
+        self.on_main()
+        d, why = self.judge("git merge " + self.old)
+        self.assertEqual(d, "deny")
+        self.assertIn("by name", why)
+
+    def test_syncing_the_default_branch_is_not_gated(self):
+        self.on_main()
+        self.git("remote", "add", "origin", self.other)
+        self.git("update-ref", "refs/remotes/origin/main", "main")
+        self.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+        self.assertEqual(self.judge("git merge origin/main")[0], "ask")
+        self.assertEqual(guard.judge({"tool": "bash", "command": "git merge origin/main", "cwd": self.repo}, self.policy)[2], "git merge *")
+
+    def test_without_a_default_branch_the_gate_is_off(self):
+        self.git("branch", "-q", "-m", "main", "trunk")
+        self.git("checkout", "-q", "trunk")
+        self.assertEqual(guard.judge({"tool": "bash", "command": "git merge x", "cwd": self.repo}, self.policy)[2], "git merge *")
+
+    def test_the_no_review_marker_turns_the_deny_into_a_high_ask(self):
+        self.on_main()
+        d, why = self.judge("AI_SETUP_NO_REVIEW=1 git merge x")
+        self.assertEqual(d, "ask")
+        self.assertTrue(why.startswith("🔴 high risk: "), why)
+        self.assertIn("WITHOUT a review report", why)
+        self.assertEqual(guard.judge({"tool": "bash", "command": "AI_SETUP_NO_REVIEW=1 git merge x", "cwd": self.repo}, self.policy)[2],
+                         "merge-without-review")
+
+    def test_a_deny_wins_over_an_earlier_ask(self):
+        self.on_main()
+        self.assertEqual(self.judge("git push origin main && git merge x")[0], "deny")
+
+    def pr(self, command="gh pr merge 5", info=None, error=False):
+        patch = mock.patch.object(guard, "gh_pr_info", return_value=None if error else (info or {
+            "headRefName": "x", "headRefOid": self.old, "baseRefName": "main"}))
+        with patch:
+            return self.judge(command)
+
+    def test_gh_pr_merge_with_a_fresh_report_asks(self):
+        self.write_report(self.old)
+        self.assertEqual(self.pr()[0], "ask")
+
+    def test_gh_pr_merge_without_a_report_denies(self):
+        d, why = self.pr()
+        self.assertEqual(d, "deny")
+        self.assertIn("sub-review", why)
+
+    def test_gh_pr_merge_into_another_base_is_not_gated(self):
+        d, _ = self.pr(info={"headRefName": "x", "headRefOid": self.old, "baseRefName": "release"})
+        self.assertEqual(d, "ask")
+
+    def test_gh_pr_merge_asks_when_gh_fails(self):
+        d, why = self.pr(error=True)
+        self.assertEqual(d, "ask")
+        self.assertIn("could not check the review report", why)
+
+    # fix round 1: ways around the gate found in review
+    def rule(self, command, cwd=None):
+        return guard.judge({"tool": "bash", "command": command, "cwd": cwd or self.repo}, self.policy)[2]
+
+    def test_an_equals_sign_in_an_argument_does_not_hide_the_branch(self):
+        self.on_main()
+        self.assertEqual(self.judge('git merge -m "k=v" x')[0], "deny")
+
+    def test_a_merge_after_a_pipe_is_gated(self):
+        self.on_main()
+        self.assertEqual(self.judge("echo hi | git merge x")[0], "deny")
+
+    def test_an_unknown_folder_denies_and_says_how_to_fix_it(self):
+        self.on_main()
+        for c in ["cd $REPO && git merge x", 'cd "$REPO" && git merge x', "cd - && git merge x", "pushd $REPO; git merge x",
+                  "git -C $REPO merge x"]:
+            d, why = self.judge(c, cwd=self.other)
+            self.assertEqual(d, "deny", c)
+            self.assertIn("cannot tell which repo", why)
+        self.assertEqual(self.judge("AI_SETUP_NO_REVIEW=1 cd $REPO && git merge x", cwd=self.other)[0], "deny")  # marker belongs to cd: not the merge
+        d, why = self.judge("cd $REPO && AI_SETUP_NO_REVIEW=1 git merge x", cwd=self.other)
+        self.assertEqual((d, why.startswith("🔴 high risk: ")), ("ask", True))
+
+    def test_home_in_a_cd_target_is_resolved(self):
+        self.on_main()
+        with mock.patch.dict(os.environ, {"HOME": os.path.dirname(self.repo)}):
+            for c in ["cd $HOME/repo && git merge x", "cd ${HOME}/repo && git merge x"]:
+                d, why = self.judge(c, cwd=self.other)
+                self.assertEqual(d, "deny", c)
+                self.assertIn("sub-review", why)
+
+    def test_git_dir_and_work_tree_deny_and_name_git_c(self):
+        self.on_main()
+        for c in ["git --git-dir=.git merge x", "git --git-dir .git merge x", "git --work-tree . merge x", "GIT_DIR=.git git merge x",
+                  "GIT_WORK_TREE=. git merge x"]:
+            d, why = self.judge(c)
+            self.assertEqual(d, "deny", c)
+            self.assertIn("git -C", why)
+        self.assertEqual(self.judge("AI_SETUP_NO_REVIEW=1 git --git-dir=.git merge x")[0], "ask")
+
+    def test_checkout_of_a_file_or_a_missing_branch_is_not_a_branch_switch(self):
+        self.on_main()
+        self.assertEqual(self.judge("git checkout README.md && git merge x")[0], "deny")
+        self.assertEqual(self.judge("git switch nonexistent; git merge x")[0], "deny")
+        self.assertEqual(self.judge("git checkout -b new && git merge x")[0], "ask")  # -b is a switch: now on 'new', not the default
+
+    def test_gh_pr_merge_of_another_repo_is_not_judged_here(self):
+        for c in ["gh pr merge 5 -R o/r", "gh pr merge --repo o/r 5", "gh pr merge --repo=o/r 5"]:
+            d, why = self.pr(c)
+            self.assertEqual((d, why.startswith("🔴 high risk: ")), ("ask", True), c)
+            self.assertIn("-R points at another repo", why)
+
+    def test_the_header_takes_the_verdict(self):
+        run = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "core", "guard", "review_report.py"), "header", "--dir", self.repo,
+                              "--dev-root", self.dev, "--verdict", "NEEDS CHANGES"], capture_output=True, text=True)
+        import review_report
+        self.assertIn("Verdict: NEEDS CHANGES", run.stdout)
+        self.assertEqual(review_report.parse(run.stdout)["verdict"], "NEEDS CHANGES")
+
+    def test_parse_reads_bullets_bold_and_whole_values(self):
+        import review_report
+        text = "- **Commit:** abc1234\n* Tree: def5678\n**Verdict: NEEDS CHANGES**\n"
+        self.assertEqual(review_report.parse(text), {"commit": "abc1234", "tree": "def5678", "verdict": "NEEDS CHANGES"})
+
+    def test_a_failed_tree_leaves_it_empty_and_warns(self):
+        run = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "core", "guard", "review_report.py"), "header", "--dir", self.other,
+                              "--dev-root", self.dev], capture_output=True, text=True)
+        self.assertIn("\nTree: \n", run.stdout)
+        self.assertIn("warning", run.stderr)
+
+    def test_a_path_qualified_git_is_gated(self):
+        self.on_main()
+        self.assertEqual(self.judge("/usr/bin/git merge x")[0], "deny")
+
+    def test_the_marker_inside_an_argument_is_not_a_marker(self):
+        self.on_main()
+        self.assertEqual(self.judge('git merge -m "AI_SETUP_NO_REVIEW=1 " x')[0], "deny")
+
+    def test_an_unknown_repo_name_is_a_high_ask(self):
+        self.on_main()
+        with mock.patch.object(guard.review_report, "repo_name", return_value=None):
+            d, why = self.judge("git merge x")
+        self.assertEqual((d, why.startswith("🔴 high risk: ")), ("ask", True))
+        self.assertIn("could not check the review report", why)
+
+    def test_only_real_write_targets_in_reviews_ask(self):
+        r = os.path.join(self.dev, "reviews", "a", "x.md")
+        for c in [f"cp {r} $TMPDIR/y", f"cat {r} > $TMPDIR/o", f"grep -n x {r}"]:
+            self.assertEqual(self.judge(c)[0], "allow", c)
+        for c in [f"cat > {r}", f"cp y {r}", f"tee {r}", f"echo hi | tee -a {r}"]:
+            self.assertEqual(self.judge(c)[0], "ask", c)
+        self.assertEqual(self.rule(f"cp y {r}"), "review-report-write")
+
+
+    # fix round 2
+    def test_assignments_after_a_wrapper_do_not_hide_the_merge(self):
+        self.on_main()
+        for c in ["env FOO=1 git merge x", "sudo FOO=1 git merge x", "FOO=1 env BAR=2 git merge x"]:
+            self.assertEqual(self.judge(c)[0], "deny", c)
+        d, why = self.judge("env AI_SETUP_NO_REVIEW=1 git merge x")
+        self.assertEqual((d, why.startswith("🔴 high risk: ")), ("ask", True))
+
+    def test_merge_abort_is_not_denied_for_an_unknown_folder(self):
+        for flag in ["--abort", "--continue", "--quit", "--skip"]:
+            self.assertEqual(self.rule(f"cd $D && git merge {flag}", cwd=self.other), "git merge *", flag)
+
+    def test_create_and_orphan_are_branch_switches(self):
+        self.on_main()
+        for c in ["git switch --create new && git merge x", "git checkout --orphan new && git merge x"]:
+            self.assertEqual(self.judge(c)[0], "ask", c)
+
+
+    def test_writing_a_review_report_from_bash_asks_but_reading_does_not(self):
+        path = os.path.join(self.dev, "reviews", "r", "x.md")
+        d, why = self.judge(f"cat > {path}")
+        self.assertEqual((d, why.startswith("🔴 high risk: ")), ("ask", True))
+        self.assertEqual(self.judge(f"cat {path}")[0], "allow")
+
+    def test_a_lone_ampersand_separates_commands(self):
+        self.on_main()
+        for command in ("sleep 1 & git merge x", "git merge x & sleep 1", "true &\ngit merge x"):
+            self.assertEqual(self.judge(command)[0], "deny", command)
+        self.assertEqual(self.judge("git merge x 2>&1")[0], "deny")  # redirections are not separators
+        self.assertEqual(self.judge("git merge x &> /dev/null")[0], "deny")
+
+    def test_env_chdir_and_wrapper_values_do_not_hide_the_merge(self):
+        self.on_main()
+        self.git("branch", "wip")
+        feature = os.path.join(os.path.dirname(self.repo), "feat")
+        subprocess.run(["git", "clone", "-q", "-b", "wip", self.repo, feature], check=True, capture_output=True)
+        for command in (f"env -C {self.repo} git merge x", f"env --chdir={self.repo} git merge x",
+                        "sudo -u root git merge x", "sudo -u root -g wheel git merge x"):
+            self.assertEqual(self.judge(command, cwd=feature if "-C" in command or "chdir" in command else None)[0], "deny", command)
+        self.assertNotEqual(self.judge(f"env -C {feature} git merge main")[0], "deny")  # env -C into a feature branch: no gate
+
+    def test_a_checkout_that_cannot_be_resolved_denies_the_merge_after_it(self):
+        self.git("checkout", "-q", "-b", "wip")
+        for command in ("git checkout - && git merge x", "git switch - ; git merge x", "git checkout @{-1} && git merge x",
+                        "git checkout $(echo main) && git merge x"):
+            self.assertEqual(self.judge(command)[0], "deny", command)
+        self.assertEqual(self.judge("git checkout - && git merge x".replace("git merge x", "git status"))[0], "allow")
+        self.assertEqual(self.judge("git checkout somefile && git merge main")[0], "ask")  # a file is not a branch switch
+
+    def test_a_cd_inside_parentheses_does_not_leak(self):
+        self.on_main()
+        feature = os.path.join(os.path.dirname(self.repo), "feat")
+        subprocess.run(["git", "clone", "-q", self.repo, feature], check=True, capture_output=True)
+        subprocess.run(["git", "-C", feature, "checkout", "-q", "-b", "wip"], check=True, capture_output=True)
+        self.assertEqual(self.judge(f"(cd {feature} && true); git merge x")[0], "deny")
+        self.assertEqual(self.judge(f"(cd {feature} && git merge main)")[0], "ask")  # inside, the cd still counts
+        self.assertEqual(self.judge(f"cd \"$(git -C {feature} rev-parse --show-toplevel)\" && true; git merge x")[0], "deny")
 
 
 class FailsClosed(unittest.TestCase):
