@@ -25,7 +25,8 @@ description: Run a whole ticket end to end - understand, plan, build, test, docs
 Read the repo's `AGENTS.md` section "Risk tiers" and propose tier low when the change fits it (a style fix, a typo).
 I confirm in one line. Then skip exploration and planning, but still run `sub-review` and write the report with the same
 helper and path as `sub-review` (`python3 -I {{AI_SETUP}}/core/guard/review_report.py`, `~/Dev/reviews/<repo>/<branch>.md`).
-Any other tier, or no confirmation: the full flow below.
+`sub-tester` still runs, one test per criterion, as in the full flow.
+Any other tier, no confirmation, or a repo with no "Risk tiers" section: the full flow below.
 The short route still needs `criteria.md`; a 1-3 line version (Goal + 1-3 Given/When/Then) is enough. If there is none, stop and offer `grillme`, as at Gate 1: that rule applies to both routes.
 
 ## 0a · Scope contract (before planning or writing)
