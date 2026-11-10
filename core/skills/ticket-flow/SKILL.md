@@ -21,6 +21,13 @@ description: Run a whole ticket end to end - understand, plan, build, test, docs
   that path as the only working directory.
 - The ticket branch stays local until Gate 2. No intermediate commits: the policy asks for OK on every commit.
 
+## Short route (low risk)
+Read the repo's `AGENTS.md` section "Risk tiers" and propose tier low when the change fits it (a style fix, a typo).
+I confirm in one line. Then skip exploration and planning, but still run `sub-review` and write the report with the same
+helper and path as `sub-review` (`python3 -I {{AI_SETUP}}/core/guard/review_report.py`, `~/Dev/reviews/<repo>/<branch>.md`).
+Any other tier, or no confirmation: the full flow below.
+The short route still needs `criteria.md`; a 1-3 line version (Goal + 1-3 Given/When/Then) is enough. If there is none, stop and offer `grillme`, as at Gate 1: that rule applies to both routes.
+
 ## 0a · Scope contract (before planning or writing)
 Read the ticket and the latest stakeholder feedback (comments, review). Emit:
 - **(a) Allowlist:** files and directories that may be touched.
@@ -52,6 +59,7 @@ Write `<dev root>/handoffs/<ticket>/plan.md` (never in the repo):
 - risks and open questions.
 
 ## ⛔ GATE 1: plan approval
+Needs `<dev root>/handoffs/<ticket>/criteria.md` on both routes (short route: the 1-3 line version). If there is no criteria.md, stop and offer the `grillme` skill, which writes it.
 A single message: plan summary (short and scannable) + **all** the questions together. Build nothing until the OK.
 
 ## 2 · Build
