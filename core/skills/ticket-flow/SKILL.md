@@ -37,7 +37,7 @@ Read the ticket and the latest stakeholder feedback (comments, review). Emit:
 - **(a) Allowlist:** files and directories that may be touched.
 - **(b) Remove or avoid:** content the stakeholders ask to take out, quoted verbatim.
 - **(c) Not touched:** what stays out.
-- **(d) Success criteria:** taken from `criteria.md`, never reworded (see Gate 1).
+- **(d) Success criteria:** taken from `criteria.md`, never reworded. If there is no `criteria.md`, stop here and offer `grillme`, the same rule as Gate 1.
 - **(e) "My commits":** if the request refers to them, filter with `git log --author=<me>`.
 
 If any of the five is missing, or the request is vague or ambiguous, use the `grillme` skill (one question at a time) before going on.

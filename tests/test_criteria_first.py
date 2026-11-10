@@ -56,6 +56,10 @@ class CriteriaFirst(unittest.TestCase):
             "no \"risk tiers\" section", "short form: goal + 1-3 criteria",
         )
 
+    def test_7_grillme_has_short_form_with_allowlist_and_scope_contract_stops_without_criteria(self):
+        self.assert_all(GRILLME, "short form", "1-3 criteria", "allowlist")
+        self.assert_all(TICKET_FLOW, "if there is no `criteria.md`, stop here and offer `grillme`")
+
 
 if __name__ == "__main__":
     unittest.main()
