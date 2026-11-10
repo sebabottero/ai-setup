@@ -25,3 +25,18 @@ Between waves, a short summary: **Understood** (3-5 points) · **Assumptions** (
 Stop when the answers no longer change the plan. Deliver:
 - goal in 1 sentence, acceptance criteria, out of scope;
 - decisions made and open questions.
+
+Then write `<dev root>/handoffs/<ticket>/criteria.md` (the ticket id, or a short task slug if there is none), in this exact shape:
+```
+# Criteria: <task>
+## Goal
+<1 sentence>
+## Out of scope
+<what stays out; short form: also the allowlist of files that may be touched, in one line>
+## Criteria
+1. Given <context>, when <action>, then <observable result>.
+(Given/When/Then, 3-7 items, each one checkable by a test)
+## Done
+<what must be true to call it finished>
+```
+Short form, when asked for it (a low-risk change, `ticket-flow` short route): same shape, 1-3 criteria, and the Out of scope line carries the allowlist.

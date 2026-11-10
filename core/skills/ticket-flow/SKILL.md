@@ -21,12 +21,23 @@ description: Run a whole ticket end to end - understand, plan, build, test, docs
   that path as the only working directory.
 - The ticket branch stays local until Gate 2. No intermediate commits: the policy asks for OK on every commit.
 
+## Short route (low risk)
+Read the repo's `AGENTS.md` section "Risk tiers" and propose tier low when the change fits it (a style fix, a typo).
+I confirm in one line. Then skip exploration and planning, but still run `sub-review` and write the report with the same
+helper and path as `sub-review` (`python3 -I {{AI_SETUP}}/core/guard/review_report.py`, `<dev root>/reviews/<repo>/<branch>.md`).
+`sub-tester` still runs, one test per criterion, as in the full flow.
+Any other tier, no confirmation, or a repo with no "Risk tiers" section: the full flow below.
+The 0a scope contract still applies in short form: allowlist and out of scope in one line, confirmed together with the tier,
+and written into `criteria.md` (there is no `plan.md` on this route).
+The short route still needs `criteria.md`; a 1-3 line version (Goal + 1-3 Given/When/Then) is enough. If there is none, stop and offer `grillme`
+(for a low-risk change, ask it for the short form: Goal + 1-3 criteria), as at Gate 1: that rule applies to both routes.
+
 ## 0a · Scope contract (before planning or writing)
 Read the ticket and the latest stakeholder feedback (comments, review). Emit:
 - **(a) Allowlist:** files and directories that may be touched.
 - **(b) Remove or avoid:** content the stakeholders ask to take out, quoted verbatim.
 - **(c) Not touched:** what stays out.
-- **(d) Success criteria.**
+- **(d) Success criteria:** taken from `criteria.md`, never reworded. If there is no `criteria.md`, stop here and offer `grillme`, the same rule as Gate 1.
 - **(e) "My commits":** if the request refers to them, filter with `git log --author=<me>`.
 
 If any of the five is missing, or the request is vague or ambiguous, use the `grillme` skill (one question at a time) before going on.
@@ -45,13 +56,14 @@ If the ticket is vague, use the `grillme` skill before the plan.
 ## 1 · Plan
 Write `<dev root>/handoffs/<ticket>/plan.md` (never in the repo):
 - goal in 1 or 2 sentences;
-- **acceptance criteria**, each with its concrete check;
+- **acceptance criteria**, each with its concrete check; they come from `criteria.md` (copy them, do not reword). If the two ever differ, `criteria.md` wins;
 - **out of scope**;
 - the writer's steps, in order, and which files each touches;
 - for a feature, the seams to test (`tdd` skill): public interface and what each one covers;
 - risks and open questions.
 
 ## ⛔ GATE 1: plan approval
+Needs `<dev root>/handoffs/<ticket>/criteria.md` on both routes (short route: the 1-3 line version). If there is no criteria.md, stop and offer the `grillme` skill, which writes it.
 A single message: plan summary (short and scannable) + **all** the questions together. Build nothing until the OK.
 
 ## 2 · Build
