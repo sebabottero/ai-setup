@@ -41,13 +41,19 @@ class CriteriaFirst(unittest.TestCase):
         self.assert_all(
             TICKET_FLOW, "short route", "risk tiers", "tier low", "one line",
             "skip exploration and planning", "sub-review", "review_report.py",
-            "~/dev/reviews/<repo>/<branch>.md",
+            "<dev root>/reviews/<repo>/<branch>.md",
         )
 
     def test_5_grillme_closing_writes_criteria_md_in_goal_out_of_scope_criteria_done_shape(self):
         self.assert_all(
-            GRILLME, "~/dev/handoffs/<ticket>/criteria.md", "## goal", "## out of scope",
+            GRILLME, "<dev root>/handoffs/<ticket>/criteria.md", "## goal", "## out of scope",
             "## criteria", "given/when/then", "3-7", "## done",
+        )
+
+    def test_6_short_route_keeps_scope_contract_and_criteria_md_wins_over_plan(self):
+        self.assert_all(
+            TICKET_FLOW, "0a scope contract still applies in short form", "`criteria.md` wins",
+            "no \"risk tiers\" section", "short form: goal + 1-3 criteria",
         )
 
 

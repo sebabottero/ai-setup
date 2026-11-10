@@ -26,7 +26,7 @@ Stop when the answers no longer change the plan. Deliver:
 - goal in 1 sentence, acceptance criteria, out of scope;
 - decisions made and open questions.
 
-Then write `~/Dev/handoffs/<ticket>/criteria.md` (the ticket id, or a short task slug if there is none), in this exact shape:
+Then write `<dev root>/handoffs/<ticket>/criteria.md` (the ticket id, or a short task slug if there is none), in this exact shape:
 ```
 # Criteria: <task>
 ## Goal
