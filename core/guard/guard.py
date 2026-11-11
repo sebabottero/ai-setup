@@ -49,6 +49,9 @@ HIGH_RISK = {"outside-sandbox", "outside-sandbox-write", "secret", "secret-glob"
              "git commit-tree*", "rm -rf *", "rm -fr *", "gh pr merge*", "gh release create*", "merge-without-review", "merge-unchecked", "review-report-write"}
 # merge gate: merging into the default branch needs a review report; these are the policy asks it replaces when it applies
 GATE_RULES = ("git merge *", "gh pr merge*")
+PULL_VALUE_OPTS = {"-s", "-X", "--strategy", "--strategy-option", "--depth", "--deepen", "--shallow-since", "--shallow-exclude",
+                   "--upload-pack", "--negotiation-tip", "--negotiation-restrict", "--negotiation-include", "--refmap", "--server-option", "-o", "-j", "--jobs",
+                   "--cleanup"}  # only options whose value is a SEPARATE word: -S / --gpg-sign / --recurse-submodules take it attached
 MERGE_VALUE_OPTS = {"-m", "-F", "-s", "-X", "--file", "--message", "--strategy", "--strategy-option", "--into-name", "--cleanup"}
 WRAPPER_VALUE_OPTS = {"-C", "--chdir", "-u", "--user", "-g", "--group", "-U", "--unset"}  # env / sudo options that take a value
 GH_MERGE_VALUE_OPTS = {"-b", "--body", "-F", "--body-file", "-t", "--subject", "-A", "--author-email", "--match-head-commit", "-R", "--repo"}
@@ -319,6 +322,27 @@ def gate_git_merge(directory, args, current, no_review, policy):
     return found
 
 
+def gate_git_pull(directory, args, current, no_review, policy):
+    """Items for one `git pull <remote|.> <branch>` run in `directory`: a merge (or rebase) of that branch into the current one."""
+    default = default_branch(directory)
+    current = current or review_report.git(directory, "symbolic-ref", "-q", "--short", "HEAD")
+    if not default or current != default:
+        return []
+    remote, *refspecs = positional(args, PULL_VALUE_OPTS) or [None]
+    found = []
+    for refspec in refspecs:  # no refspec (git pull, git pull origin): the upstream, a sync of the default branch
+        name = refspec.lstrip("+").partition(":")[0]
+        if name == default:  # git pull origin main on main: a sync, not a merge of new work
+            continue
+        ref = f"refs/heads/{name}" if remote == "." else f"refs/remotes/{remote}/{name}"
+        if not exists(directory, ref):  # the remote-tracking ref may be older than what pull fetches: a known gap
+            found.append(("deny", f"'{name}' is not a branch known locally: fetch it by name so its review report can be found", "merge-gate"))
+            continue
+        head = review_report.git(directory, "rev-parse", "--verify", "-q", ref + "^{commit}")
+        found.append(check_report(directory, policy, name, head, no_review))
+    return found
+
+
 def cannot_judge(why, no_review):
     """A merge whose repo cannot be worked out is denied (nothing was checked); the marker makes it an ask."""
     if no_review:
@@ -379,15 +403,26 @@ def merge_gate(command, policy, cwd=None):
                     first = positional(args, set())[:1]
                     unresolved = not named and first and (first[0] == "-" or first[0].startswith("@{") or re.search(r"[$`]", first[0]))
                     branch = named[0] if named else "?" if unresolved else branch  # "?": switched to a branch we cannot name
-                elif sub == ["merge"] and not {"--abort", "--continue", "--quit", "--skip"} & set(args):
+                elif (sub == ["merge"] and not {"--abort", "--continue", "--quit", "--skip"} & set(args)) or sub == ["pull"]:
+                    lost = redirected or where is None or bool({"GIT_DIR", "GIT_WORK_TREE"} & {e.split("=")[0] for e in env})
+                    # a pull that names only the default branch (or no refspec) is a sync, not a merge of new work. When the folder is
+                    # lost the real default is unknown, so main / master by name stands in for it; when only the branch is unknown
+                    # ("?") the name is not enough (git pull . master in a repo whose default is main): compare with the real default
+                    if sub == ["pull"] and (lost or (branch == "?" and where)):
+                        names = ("main", "master") if lost else (default_branch(where),)
+                        if all(r.lstrip("+").partition(":")[0] in names for r in positional(args, PULL_VALUE_OPTS)[1:]):
+                            continue
                     if redirected or {"GIT_DIR", "GIT_WORK_TREE"} & {e.split("=")[0] for e in env}:
                         found.append(cannot_judge("a merge with --git-dir / --work-tree / GIT_DIR cannot be checked: use git -C <path>", no_review))
                     elif where is None:
                         found.append(cannot_judge(unknown, no_review))
+                    elif branch == "?" and sub == ["pull"]:  # the branch may be the default: judge the refspecs as if it were
+                        found += [r for r in gate_git_pull(where, args, default_branch(where), no_review, policy) if r]
                     elif branch == "?":
                         found.append(cannot_judge("cannot tell which branch this merge runs on after a checkout / switch of '-', '@{-1}' or a variable: use the branch name", no_review))
                     else:
-                        found += [r for r in gate_git_merge(where, args, branch, no_review, policy) if r]
+                        gate = gate_git_merge if sub == ["merge"] else gate_git_pull
+                        found += [r for r in gate(where, args, branch, no_review, policy) if r]
     return found
 
 
@@ -432,7 +467,7 @@ def bash(command, policy, cwd=None, depth=0):
     written = review_write(command, policy)
     if written:
         found.append(("ask", f"'{written}' is a review report: only sub-review writes those, confirm", "review-report-write"))
-    gated = merge_gate(command, policy, cwd) if re.search(r"\bmerge\b", command) else []  # only merges: a bug here touches no other command
+    gated = merge_gate(command, policy, cwd) if re.search(r"\b(?:merge|pull)\b", command) else []  # only merges and pulls: a bug here touches no other command
     found += gated
     for seg in segments(command):
         is_rm, outside = rm_outside_tmp(seg)

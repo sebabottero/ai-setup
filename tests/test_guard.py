@@ -449,6 +449,203 @@ class MergeGate(unittest.TestCase):
             runpy.run_path(os.path.join(ROOT, "adapters", "claude", "hooks", "policy_guard.py"), run_name="__main__")
         self.assertEqual(json.loads(out.getvalue())["hookSpecificOutput"]["permissionDecision"], "ask")
 
+    def remote_tracking(self, name="x"):
+        self.git("remote", "add", "origin", self.other)
+        self.git("update-ref", "refs/remotes/origin/" + name, name)  # no network: just the ref a fetch would leave
+
+    def test_no_report_pull_denies_and_names_sub_review(self):
+        self.remote_tracking()
+        self.on_main()
+        for c in ["git pull origin x", "git pull . x"]:
+            with self.subTest(c):
+                d, why = self.judge(c)
+                self.assertEqual(d, "deny")
+                self.assertIn("sub-review", why)
+
+    def test_pull_of_a_branch_named_master_is_gated_when_the_default_is_main(self):
+        self.on_main()
+        self.git("checkout", "-q", "-b", "master")
+        self.commit("on-master")
+        self.on_main()
+        self.remote_tracking("master")
+        for c in ["git pull . master", "git pull origin master"]:
+            with self.subTest(c):
+                d, why = self.judge(c)
+                self.assertEqual(d, "deny")
+                self.assertIn("sub-review", why)
+
+    def prepare_checkout_dash_to_main(self):
+        self.on_main()
+        self.git("checkout", "-q", "-b", "master")
+        self.commit("on-master")
+        self.on_main()
+        self.remote_tracking("master")
+        self.git("checkout", "-q", "x")  # current x, previous main: `git checkout -` lands on main
+
+    def test_checkout_dash_then_pull_of_a_branch_named_master_is_gated_when_the_default_is_main(self):
+        self.prepare_checkout_dash_to_main()
+        for c in ["git checkout - && git pull . master", "git checkout - && git pull origin master"]:
+            with self.subTest(c):
+                d, why = self.judge(c)
+                self.assertEqual(d, "deny")
+                self.assertIn("sub-review", why)
+
+    def test_checkout_dash_then_pull_of_main_stays_allowed(self):
+        self.prepare_checkout_dash_to_main()
+        d, _ = self.judge("git checkout - && git pull origin main")
+        self.assertEqual(d, "allow")
+
+    def test_pull_with_a_report_for_an_older_commit_is_stale(self):
+        self.write_report(self.old)
+        self.commit("more")
+        self.on_main()
+        d, why = self.judge("git pull . x")
+        self.assertEqual(d, "deny")
+        self.assertIn("report is stale", why)
+
+    def test_pull_with_a_fresh_report_asks_and_the_log_names_it(self):
+        self.write_report(self.old)
+        self.on_main()
+        log = os.path.join(self.dev, "actions.log")
+        os.environ["AI_SETUP_ACTIONS_LOG"] = log
+        self.addCleanup(os.environ.__setitem__, "AI_SETUP_ACTIONS_LOG", "off")
+        d, _ = self.judge("git pull . x", log=True)
+        self.assertEqual(d, "ask")
+        self.assertEqual(guard.judge({"tool": "bash", "command": "git pull . x", "cwd": self.repo}, self.policy)[2], "merge-reviewed")
+        with open(log) as f:
+            line = f.read().strip()
+        self.assertTrue(line.endswith("[report: " + self.report.replace(os.path.expanduser("~"), "~") + "]"), line)
+
+    def test_pull_that_updates_the_default_branch_does_not_apply_the_gate(self):
+        self.remote_tracking("main")
+        self.on_main()
+        for c in ["git pull", "git pull --rebase", "git pull --ff-only", "git pull origin main"]:
+            with self.subTest(c):
+                self.assertEqual(self.judge(c)[0], "allow")
+
+    def test_pull_on_a_feature_branch_does_not_apply_the_gate(self):
+        self.remote_tracking("main")
+        for c in ["git pull origin main", "git pull . x"]:
+            with self.subTest(c):
+                self.assertEqual(self.judge(c)[0], "allow")
+
+    def test_a_guard_crash_while_checking_a_pull_falls_back_to_ask(self):
+        import io, json, runpy
+        self.on_main()
+        event = {"tool_name": "Bash", "tool_input": {"command": "git pull . x"}, "cwd": self.repo}
+        out = io.StringIO()
+        with mock.patch.object(guard, "merge_gate", side_effect=RuntimeError("boom")), \
+                mock.patch("sys.stdin", io.StringIO(json.dumps(event))), mock.patch("sys.stdout", out):
+            runpy.run_path(os.path.join(ROOT, "adapters", "claude", "hooks", "policy_guard.py"), run_name="__main__")
+        self.assertEqual(json.loads(out.getvalue())["hookSpecificOutput"]["permissionDecision"], "ask")
+
+    def test_pull_rebase_of_another_branch_is_gated_too(self):
+        self.remote_tracking()
+        self.on_main()
+        d, why = self.judge("git pull --rebase origin x")
+        self.assertEqual(d, "deny")
+        self.assertIn("sub-review", why)
+
+    def test_pull_of_a_branch_with_no_local_ref_denies_and_says_to_fetch(self):
+        self.git("remote", "add", "origin", self.other)
+        self.on_main()
+        d, why = self.judge("git pull origin y")
+        self.assertEqual(d, "deny")
+        self.assertIn("fetch", why)
+
+    def test_options_whose_value_is_only_attached_never_swallow_the_remote(self):
+        self.remote_tracking()
+        self.on_main()
+        for c in ["git pull -S origin x", "git pull --gpg-sign origin x", "git pull --recurse-submodules origin x",
+                  "git pull --gpg-sign=KEY origin x", "git pull -SKEY origin x", "git pull -sours origin x", "git pull -Xtheirs origin x"]:
+            with self.subTest(c):
+                self.assertEqual(self.judge(c)[0], "deny")
+
+    def test_options_that_take_a_separate_value_still_find_the_branch(self):
+        self.remote_tracking()
+        self.on_main()
+        for c in ["git pull -s ours origin x", "git pull -X theirs . x", "git pull --depth 1 origin x"]:
+            with self.subTest(c):
+                self.assertEqual(self.judge(c)[0], "deny")
+
+    def test_pull_refspec_forms_are_gated(self):
+        self.remote_tracking()
+        for c in ["git pull origin +x:x", "git pull origin x:main"]:
+            with self.subTest(c):
+                self.on_main()
+                d, why = self.judge(c)
+                self.assertEqual(d, "deny")
+                self.assertIn("sub-review", why)
+
+    def test_pull_of_two_refspecs_is_denied_when_only_one_has_a_report(self):
+        self.git("branch", "y")
+        self.remote_tracking("x")
+        self.git("update-ref", "refs/remotes/origin/y", "y")
+        self.write_report(self.old)  # report for x only
+        self.on_main()
+        self.assertEqual(self.judge("git pull origin x y")[0], "deny")
+
+    def test_pull_from_another_folder_is_gated(self):
+        self.on_main()
+        for c in [f"git -C {self.repo} pull . x", f"cd {self.repo} && git pull . x"]:
+            with self.subTest(c):
+                d, why = self.judge(c, cwd=self.other)
+                self.assertEqual(d, "deny")
+                self.assertIn("sub-review", why)
+
+    def test_a_pull_without_a_refspec_is_not_denied_when_the_repo_cannot_be_resolved(self):
+        self.on_main()
+        for c in ['cd "$REPO" && git pull', f"git -C $d pull", "GIT_DIR=x git pull"]:
+            with self.subTest(c):
+                self.assertEqual(self.judge(c)[0], "allow")
+        self.git("checkout", "-q", "x")
+        with self.subTest("git checkout - && git pull"):
+            self.assertEqual(self.judge("git checkout - && git pull")[0], "allow")
+
+    def test_a_pull_with_a_refspec_in_an_unresolvable_folder_still_denies(self):
+        self.remote_tracking()
+        self.on_main()
+        self.assertEqual(self.judge('cd "$REPO" && git pull origin x')[0], "deny")
+
+    def test_a_pull_of_the_default_branch_is_allowed_even_when_the_repo_cannot_be_resolved(self):
+        """Criteria 4 and 5: `git pull origin main` does not meet the gate, on main and on a feature branch."""
+        self.remote_tracking("main")
+        unresolvable = ['cd "$R" && git pull origin main', "git -C $d pull origin main", "GIT_DIR=x git pull origin main",
+                        "git checkout - && git pull origin main", 'cd "$R" && git pull . main',
+                        'cd "$R" && git pull origin main:main']
+        for branch in ["main", "x"]:
+            self.git("checkout", "-q", branch)
+            for c in unresolvable:
+                with self.subTest(branch=branch, command=c):
+                    d, why = self.judge(c)
+                    self.assertEqual(d, "allow", why)
+
+    def test_a_pull_of_another_branch_in_an_unresolvable_place_still_denies(self):
+        self.remote_tracking()
+        self.on_main()
+        for c in ['cd "$R" && git pull origin x', "git -C $d pull . x"]:
+            with self.subTest(c):
+                d, why = self.judge(c)
+                self.assertEqual(d, "deny")
+                self.assertIn("cannot tell which repo", why)
+
+    def test_a_pull_naming_only_the_default_branch_in_a_resolvable_repo_on_main_is_allowed(self):
+        self.remote_tracking("main")
+        self.on_main()
+        for c in ["git pull origin main", "git pull . main", "git pull origin main:main", "git pull origin +main"]:
+            with self.subTest(c):
+                d, why = self.judge(c)
+                self.assertEqual(d, "allow", why)
+
+    def test_the_cheatsheet_merge_gate_covers_pulls_and_says_pulls_on_main_are_allowed(self):
+        with open(os.path.join(ROOT, "docs", "cheatsheet.html"), encoding="utf-8") as f:
+            html = f.read()
+        start = html.index('id="merge"')
+        section = html[start:html.index("</section>", start)]
+        self.assertIn("git pull", section)
+        self.assertIn("allowed as before", section)
+        self.assertIn("se permite como antes", section)
+
     def test_the_tree_of_reviewed_uncommitted_work_counts_as_fresh(self):
         with open(os.path.join(self.repo, "wip"), "w") as f:  # reviewed while still uncommitted, untracked included
             f.write("wip")
