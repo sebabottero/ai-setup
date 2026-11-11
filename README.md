@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **Make your AI coding agent ask before `git push`, `rm -rf` or reading your SSH keys, and stop burning tokens without noticing.**
-One folder configures Claude Code, OpenCode and Codex the same way, on every machine.
+One folder configures Claude Code, OpenCode and Codex the same way, on every machine, and covers a 6-step cycle for working with AI safely: decide → guardrails → build → independent review → human gate → learn.
 
 | | What you get |
 |---|---|
@@ -14,6 +14,7 @@ One folder configures Claude Code, OpenCode and Codex the same way, on every mac
 | 🔀 **Same rules in every tool** | Write rules, skills and agents once. They install into Claude Code, OpenCode and Codex. Your private bits live in layers, not in a fork. |
 | 🧱 **Repos that keep their rules** | `repo-guardrails` prepares any repo with a short `AGENTS.md`, a one-line `CLAUDE.md`, architecture tests that fail the build and a minimal CI. Only the file-scan test is verified; other languages are marked untested. |
 | 🎫 **One writer per ticket** | `flow-ticket` plans, a single `sub-builder` writes in its own git worktree, and review, tests and checks run read-only in parallel. |
+| 🔁 **A full cycle, not just tools** | Each of the 6 steps has a skill or a gate behind it. `ai-audit` scores any repo on how well it follows them, read-only: `python3 -I core/skills/ai-audit/audit.py <repo>`. |
 
 ## See it work
 The guard on real commands:
@@ -31,6 +32,15 @@ Guard: 1233 allowed, 352 asked, 4 denied. Rules that fire most: outside-sandbox 
 ```
 `/coach` before a task (example): model and effort, plus your request rewritten as *goal · done when · out of scope · start from*.
 Every ~30 days `tune-setup` re-tunes it from your own `/insights` data, and edits only after you approve.
+The cycle on a real app (`ai-audit` scores, 1-5, heuristic): the same cycle took four practices from weak to strong in one pilot.
+```console
+Practice                  before → after
+3 Enforced rules             1   →  4
+4 Real static checks         1   →  5
+5 Shared knowledge           2   →  5
+7 CI covers what matters     2   →  5
+```
+Review, criteria-linked tests and the human gate stay at 1 there: `ai-audit` measures them over history, not one change. [The 6 steps, and what covers each](https://sebabottero.github.io/ai-setup/cheatsheet.html#cycle).
 
 ## Install
 macOS with Homebrew and python3, or Linux with python3.
