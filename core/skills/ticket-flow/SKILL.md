@@ -62,9 +62,13 @@ Write `<dev root>/handoffs/<ticket>/plan.md` (never in the repo):
 - for a feature, the seams to test (`tdd` skill): public interface and what each one covers;
 - risks and open questions.
 
+**Split signal.** One strong signal (mixed topics such as refactor + behaviour change, or >400 lines estimated) or two weak ones (several modules or layers, independently testable criteria): propose a split into several PRs. Below ~150 estimated lines it is always a single PR, with no discussion.
+**With slices.** If `criteria.md` has `## Slices`, the user names slice K in the run's args (default: the first slice not yet merged); its build covers only slice K's criteria: the plan, the writer's allowlist and the review (also the 0a contract).
+
 ## ⛔ GATE 1: plan approval
 Needs `<dev root>/handoffs/<ticket>/criteria.md` on both routes (short route: the 1-3 line version). If there is no criteria.md, stop and offer the `grillme` skill, which writes it.
 A single message: plan summary (short and scannable) + **all** the questions together. Build nothing until the OK.
+It always carries one verdict line with your recommendation: `Single PR (~N lines, 1 topic)` or `Split into N: signals X, Y`. My OK at Gate 1 accepts it, with no separate question. The default is one slice per run; mention the alternative only when you recommend it. A slice waits for another to be merged only if it depends on its code.
 
 ## 2 · Build
 One writer, the `sub-builder` agent (balanced model; you stay on the strong one for planning and decisions), in the worktree, with a brief made with the `session-handoff` skill:
