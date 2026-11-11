@@ -38,5 +38,9 @@ Then write `<dev root>/handoffs/<ticket>/criteria.md` (the ticket id, or a short
 (Given/When/Then, 3-7 items, each one checkable by a test)
 ## Done
 <what must be true to call it finished>
+## Slices
+- PR1: criteria 1-2 · <dependencies>
+- PR2: criteria 3-4 · depends on PR1
 ```
+`## Slices` (optional): add it when the criteria can be delivered and tested separately, or the task mixes topics (refactor + behaviour change): criteria numbers per PR, with their dependencies. Single PR: no `## Slices` section.
 Short form, when asked for it (a low-risk change, `ticket-flow` short route): same shape, 1-3 criteria, and the Out of scope line carries the allowlist.

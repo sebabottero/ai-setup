@@ -73,7 +73,7 @@ The guard is one piece. Around it, the whole loop of working with an AI agent, f
 ```
 | # | Step | Covered by |
 |---|---|---|
-| 1 | **Decide** | `grillme` interviews you and writes `criteria.md`: goal, out of scope, done criteria |
+| 1 | **Decide** | `grillme` interviews you and writes `criteria.md`: goal, out of scope, done criteria, and `## Slices` when it should be several small PRs; `ticket-flow` Gate 1 shows a single-PR or split verdict |
 | 2 | **Guardrails** | `repo-guardrails`: `AGENTS.md` templates (rules marked `E:` or with an expiry date), risk tiers, CI |
 | 3 | **Build** | `ticket-flow` orchestrates, `sub-builder` writes, `sub-tester` writes one test per criterion |
 | 4 | **Independent review** | `sub-review` checks the diff against `criteria.md`; the merge gate requires its report |
