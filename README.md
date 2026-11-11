@@ -23,43 +23,7 @@ $ echo '{"tool":"bash","command":"git status"}' | python3 core/guard/guard.py
 {"decision": "allow", "reason": ""}
 ```
 
-**Try it in 30 seconds** (changes nothing):
-```bash
-git clone https://github.com/sebabottero/ai-setup.git ~/Dev/ai-setup && cd ~/Dev/ai-setup
-./bootstrap.py --dry-run
-```
-Full steps in [Install](#install).
-
-## What you get
-| | |
-|---|---|
-| 🛡 **Asks before anything hard to undo** | One `policy.json` and one guard decide `allow` / `ask` / `deny` for every shell command. Secrets are a hard `deny`. Claude also gets an OS sandbox from the same policy. |
-| 💸 **Spends fewer tokens** | `coach` picks model and effort before you start, and flags big PDFs/docs to convert first. A hook warns when the context passes 100k. `usage_report.py` audits your own sessions, locally. |
-| 🔀 **Same rules in every tool** | Write rules, skills and agents once. They install into Claude Code, OpenCode and Codex. Your private bits live in layers (extra folders that add rules on top), not in a fork. |
-| 🧱 **Repos that keep their rules** | `repo-guardrails` prepares any repo with a short `AGENTS.md`, a one-line `CLAUDE.md`, architecture tests that fail the build and a minimal CI. Only the file-scan test is verified; other languages are marked untested. |
-| 🎫 **One writer per ticket** | `flow-ticket` plans, a single `sub-builder` writes in its own git worktree, and review, tests and checks run read-only in parallel. |
-| 🔁 **A full cycle, not just tools** | Each of 6 steps has a skill or a gate behind it, and `ai-audit` scores how well a repo follows them. See [The cycle](#the-cycle). |
-
-## The cycle
-Most setups give you tools. This one covers the whole loop of working with an AI agent safely:
-```
- 1 Decide ─► 2 Guardrails ─► 3 Build ─► 4 Independent ─► 5 Human ─► 6 Learn
-                                          review          gate        │
-   ▲                                                                  │
-   └──────────────── a repeated mistake becomes a rule ◄──────────────┘
-```
-| # | Step | Covered by |
-|---|---|---|
-| 1 | **Decide** | `grillme` interviews you and writes `criteria.md`: goal, out of scope, done criteria |
-| 2 | **Guardrails** | `repo-guardrails`: `AGENTS.md` templates (rules marked `E:` or with an expiry date), risk tiers, CI |
-| 3 | **Build** | `ticket-flow` orchestrates, `sub-builder` writes, `sub-tester` writes one test per criterion |
-| 4 | **Independent review** | `sub-review` checks the diff against `criteria.md`; the merge gate requires its report |
-| 5 | **Human gate** | `ticket-flow` Gate 2 plus the guard's `ask` on commit, push and merge: you decide |
-| 6 | **Learn** | `meta-setup` turns a repeated mistake into a rule; `ai-audit` is the periodic check |
-
-Details per step in the [cheatsheet](https://sebabottero.github.io/ai-setup/cheatsheet.html#cycle).
-
-## How it decides
+## How the guard decides
 ```
  agent runs a command
         │
@@ -83,6 +47,41 @@ The rules are plain JSON in [`core/policy.json`](core/policy.json) (shortened he
 ```
 A layer can add rules, never weaken `core/`. More in [Reference](docs/REFERENCE.md).
 
+**Try it in 30 seconds** (changes nothing):
+```bash
+git clone https://github.com/sebabottero/ai-setup.git ~/Dev/ai-setup && cd ~/Dev/ai-setup
+./bootstrap.py --dry-run
+```
+Full steps in [Install](#install).
+
+## What you get
+| | |
+|---|---|
+| 🛡 **Asks before anything hard to undo** | One `policy.json` and one guard decide `allow` / `ask` / `deny` for every shell command. Secrets are a hard `deny`. Claude also gets an OS sandbox from the same policy. |
+| 💸 **Spends fewer tokens** | `coach` picks model and effort before you start, and flags big PDFs/docs to convert first. A hook warns when the context passes 100k. `usage_report.py` audits your own sessions, locally. |
+| 🔀 **Same rules in every tool** | Write rules, skills and agents once. They install into Claude Code, OpenCode and Codex. Your private bits live in layers (extra folders that add rules on top), not in a fork. |
+| 🧱 **Repos that keep their rules** | `repo-guardrails` prepares any repo with a short `AGENTS.md`, a one-line `CLAUDE.md`, architecture tests that fail the build and a minimal CI. Only the file-scan test is verified; other languages are marked untested. |
+| 🔁 **A full cycle, not just tools** | From ticket to merge, each of 6 steps has a skill or a gate behind it (one writer per ticket, independent review, you decide). See [The cycle](#the-cycle). |
+
+## The cycle
+The guard is one piece. Around it, the whole loop of working with an AI agent, from ticket to merge:
+```
+ 1 Decide ─► 2 Guardrails ─► 3 Build ─► 4 Independent ─► 5 Human ─► 6 Learn
+                                          review          gate        │
+   ▲                                                                  │
+   └──────────────── a repeated mistake becomes a rule ◄──────────────┘
+```
+| # | Step | Covered by |
+|---|---|---|
+| 1 | **Decide** | `grillme` interviews you and writes `criteria.md`: goal, out of scope, done criteria |
+| 2 | **Guardrails** | `repo-guardrails`: `AGENTS.md` templates (rules marked `E:` or with an expiry date), risk tiers, CI |
+| 3 | **Build** | `ticket-flow` orchestrates, `sub-builder` writes, `sub-tester` writes one test per criterion |
+| 4 | **Independent review** | `sub-review` checks the diff against `criteria.md`; the merge gate requires its report |
+| 5 | **Human gate** | `ticket-flow` Gate 2 plus the guard's `ask` on commit, push and merge: you decide |
+| 6 | **Learn** | `meta-setup` turns a repeated mistake into a rule; `ai-audit` is the periodic check |
+
+Details per step in the [cheatsheet](https://sebabottero.github.io/ai-setup/cheatsheet.html#cycle).
+
 ## Measure it
 The token audit on a month of real use (`python3 -I adapters/claude/usage_report.py 30`; reads only your local transcripts, sends nothing):
 ```console
@@ -102,7 +101,7 @@ Practice                  before → after
 5 Shared knowledge           2   →  5
 7 CI covers what matters     2   →  5
 ```
-Review, criteria-linked tests and the human gate stay at 1 there: `ai-audit` measures them over history, not one change. [The 6 steps, and what covers each](https://sebabottero.github.io/ai-setup/cheatsheet.html#cycle).
+Review, criteria-linked tests and the human gate stay at 1 there: `ai-audit` measures them over history, not one change.
 
 ## Install
 macOS with Homebrew and python3, or Linux with python3.
