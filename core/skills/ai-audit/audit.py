@@ -23,6 +23,7 @@ LINTERS = {  # tool -> config file globs
     "rubocop": [".rubocop.yml"],
     "stylelint": [".stylelintrc*", "stylelint.config.*"],
     "golangci-lint": [".golangci.*"],
+    "tslint": ["tslint.json"],
 }
 DISABLE = re.compile(r"\b(eslint|stylelint|pylint|rubocop|tslint)(?:-|:\s*)disable")
 DEP_FILES = ["package.json", "pyproject.toml", "requirements*.txt", "Pipfile", "Gemfile", "go.mod", "setup.cfg", "tox.ini"]
@@ -70,34 +71,56 @@ def is_test_file(path):
     return "test" in name or "spec" in name or any(p in ("tests", "test", "__tests__", "spec") for p in parts[:-1])
 
 
+def repo_names(repo):
+    """The folder name, plus the main repo's name when `repo` is a git worktree."""
+    names = [os.path.basename(repo)]
+    common = git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    if common:
+        main = os.path.basename(os.path.dirname(common.strip().rstrip("/")))
+        if main and main not in names:
+            names.append(main)
+    return names
+
+
+def has_sub_review(log):
+    """True/False for a readable session log (read line by line), None when it cannot be read."""
+    try:
+        with open(log, encoding="utf-8", errors="replace") as f:
+            return any(SUB_REVIEW_CALL.search(line) for line in f)
+    except OSError:
+        return None
+
+
 # 1 -------------------------------------------------------------------------------------------------
 def review(ctx):
-    name = ctx["name"].lower()
+    names = [n.lower() for n in ctx["names"]]
     sessions = reviewed = 0
     pdir = ctx["projects_dir"]
     if os.path.isdir(pdir):
         for d in sorted(os.listdir(pdir)):
-            if name not in d.lower():
+            # project folders are the path with "/" turned into "-": match the name as the tail, not anywhere
+            if not any(d.lower() == n or d.lower().endswith("-" + n) for n in names):
                 continue
             for log in glob.glob(os.path.join(pdir, d, "*.jsonl")):
-                text = read_text(log, limit=200_000_000)
-                if text is None:
+                found = has_sub_review(log)
+                if found is None:
                     continue
                 sessions += 1
-                reviewed += bool(SUB_REVIEW_CALL.search(text))
-    reports = len(glob.glob(os.path.join(ctx["dev_root"], "reviews", ctx["name"], "*.md")))
+                reviewed += found
+    reports = sum(len(glob.glob(os.path.join(ctx["dev_root"], "reviews", n, "*.md"))) for n in ctx["names"])
     if not sessions:
-        return "n/a", f"no session logs for '{ctx['name']}' under {pdir}; {reports} review reports"
+        return "n/a", f"no session logs for '{ctx['names'][0]}' under {pdir}; {reports} review reports"
     return (str(score_from_share(reviewed / sessions)),
-            f"{reviewed} of {sessions} sessions called sub-review; {reports} review reports in reviews/{ctx['name']}/")
+            f"{reviewed} of {sessions} sessions called sub-review; {reports} review reports in reviews/{ctx['names'][0]}/")
 
 
 # 2 -------------------------------------------------------------------------------------------------
 def tests_intent(ctx):
-    name = ctx["name"].lower()
+    names = [n.lower() for n in ctx["names"]]
     criteria = [p for p in ctx["files"] if os.path.basename(p).lower() == "criteria.md"]
     handoffs = [p for p in glob.glob(os.path.join(ctx["dev_root"], "handoffs", "*", "criteria.md"))
-                if name in p.lower()]
+                if any(os.path.basename(os.path.dirname(p)).lower() in (n,) or
+                       os.path.basename(os.path.dirname(p)).lower().startswith(n + "-") for n in names)]
     tests = [p for p in ctx["files"] if is_test_file(p)]
     mapped = [p for p in tests if re.search(r"criteri|given|test_\d+_", p.lower())
               or re.search(r"(def |it\(|test\()\s*['\"]?(test_\d+_|given|when_)", read_text(os.path.join(ctx["repo"], p)) or "", re.I)]
@@ -135,38 +158,39 @@ def parse_rules(ctx):
 
 
 def classify(rules, today):
-    enforced, dated, unmarked, expired = [], [], [], []
+    enforced, dated, unmarked, expired, invalid = [], [], [], [], []
     for n, text in rules:
         if text.startswith("E:"):
             enforced.append(n)
             continue
-        m = re.search(r"\(until (\d{4}-\d{2}-\d{2})\)", text)
+        m = re.search(r"\(until ([^)]*)\)", text)
         until = None
         if m:
             try:
-                until = datetime.date.fromisoformat(m.group(1))
+                until = datetime.date.fromisoformat(m.group(1).strip())
             except ValueError:
-                pass
+                invalid.append((n, text))
         if until is None:
             unmarked.append(n)
         elif until < today:
             expired.append((n, text))
         else:
             dated.append(n)
-    return enforced, dated, unmarked, expired
+    return enforced, dated, unmarked, expired, invalid
 
 
 def enforced_rules(ctx):
     text, heading, rules = parse_rules(ctx)
     if text is None:
-        return "1", "no AGENTS.md", []
+        return "1", "no AGENTS.md", [], []
     if not rules:
         why = "AGENTS.md has no Rules section with rules" if heading is None else f"AGENTS.md:{heading} Rules section is empty"
-        return "1", why, []
-    enforced, dated, unmarked, expired = classify(rules, ctx["today"])
+        return "1", why, [], []
+    enforced, dated, unmarked, expired, invalid = classify(rules, ctx["today"])
     score = score_from_share((len(enforced) + len(dated)) / len(rules))
     return (str(score), f"AGENTS.md:{heading}: {len(rules)} rules: {len(enforced)} E, {len(dated)} dated, "
-                        f"{len(unmarked)} unmarked, {len(expired)} expired", expired)
+                        f"{len(unmarked)} unmarked, {len(expired)} expired"
+                        + (f", {len(invalid)} invalid dates" if invalid else ""), expired, invalid)
 
 
 # 4 -------------------------------------------------------------------------------------------------
@@ -183,7 +207,7 @@ def static_checks(ctx):
             configured.append(tool)
     deps = ""
     for p in files:
-        if any(fnmatch.fnmatch(os.path.basename(p), g) for g in DEP_FILES) and "/" not in p:
+        if any(fnmatch.fnmatch(os.path.basename(p), g) for g in DEP_FILES):
             deps += (read_text(os.path.join(ctx["repo"], p)) or "").lower()
     installed = {t for t in LINTERS if t.split("-")[0] in deps}
     # a standalone config for a non-JS tool is its own proof; JS tools need a dependency
@@ -277,12 +301,12 @@ def human_gate(ctx):
 
 
 def audit(repo, today, projects_dir, dev_root):
-    ctx = {"repo": repo, "name": os.path.basename(repo), "today": today, "projects_dir": projects_dir,
+    ctx = {"repo": repo, "names": repo_names(repo), "today": today, "projects_dir": projects_dir,
            "dev_root": dev_root, "files": list_files(repo)}
-    rule_score, rule_evidence, expired = enforced_rules(ctx)
+    rule_score, rule_evidence, expired, invalid = enforced_rules(ctx)
     results = [review(ctx), tests_intent(ctx), (rule_score, rule_evidence), static_checks(ctx), knowledge(ctx),
                small_changes(ctx), ci(ctx), human_gate(ctx)]
-    return results, expired
+    return results, expired, invalid
 
 
 def main(argv=None):
@@ -302,15 +326,17 @@ def main(argv=None):
     except ValueError:
         print(f"bad --today: {args.today} (use YYYY-MM-DD)", file=sys.stderr)
         return 2
-    results, expired = audit(repo, today, os.path.expanduser(args.projects_dir), os.path.expanduser(args.dev_root))
+    results, expired, invalid = audit(repo, today, os.path.expanduser(args.projects_dir), os.path.expanduser(args.dev_root))
     print(f"ai-audit: {repo} (today {today.isoformat()}). Scores are heuristics 1-5, not a grade.\n")
     print("# | Practice | Score | Evidence")
     for i, (name, (score, evidence)) in enumerate(zip(PRACTICES, results), 1):
         print(f"{i} | {name} | {score} | {evidence.replace('|', '/')}")
-    if expired:
+    if expired or invalid:
         print()
         for n, text in expired:
             print(f"expired: test it or delete it - AGENTS.md:{n}: {text}")
+        for n, text in invalid:
+            print(f"invalid date: AGENTS.md:{n}: {text}")
     return 0
 
 

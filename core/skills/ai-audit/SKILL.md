@@ -40,6 +40,8 @@ Columns: `#`, `Practice`, `Score`, `Evidence`. The same 8 practices always appea
 - Evidence cites `file:line` where a line exists, otherwise a count or a path.
 - Scores are heuristics, a conversation starter, not a grade. Read the evidence before acting on a number.
 - Rules past their date are listed under the table as `expired: test it or delete it - AGENTS.md:<line>: <rule>`. Turn each one into a test (`E:` rule) or delete it.
+- A malformed date (`until 2026-13-45`) is listed as `invalid date - AGENTS.md:<line>: <rule>` and counted in the evidence, never ignored.
+- Session logs are matched by the repo folder name as the tail of the project folder; in a git worktree the main repo's name is matched too.
 
 ## After the audit
 

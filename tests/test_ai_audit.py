@@ -53,9 +53,9 @@ class Audit(unittest.TestCase):
         git(self.repo, "add", "-A")
         git(self.repo, "commit", "-q", "-m", msg)
 
-    def run_audit(self, today="2026-11-10", projects=None):
+    def run_audit(self, today="2026-11-10", projects=None, repo=None):
         proc = subprocess.run(
-            [sys.executable, "-I", AUDIT, self.repo, "--today", today,
+            [sys.executable, "-I", AUDIT, repo or self.repo, "--today", today,
              "--projects-dir", projects or self.projects, "--dev-root", self.dev],
             capture_output=True, text=True,
         )
@@ -232,6 +232,61 @@ class Audit(unittest.TestCase):
         self.assertLess(int(rows[5][2]), 5)
         self.assertEqual(rows[4][2], "5")
         self.assertEqual(rows[6][2], "5")
+
+
+    # Review findings on PR 3
+    def test_tslint_installed_and_configured_is_not_a_missing_tool(self):
+        self.write("package.json", '{"devDependencies": {"tslint": "^6.0.0"}}\n')
+        self.write("tslint.json", "{}\n")
+        self.write("src/a.ts", "// tslint:disable-next-line\nconst a = 1;\n")
+        self.commit()
+        row = self.rows(self.run_audit())[3]
+        self.assertIn("missing tool: 0", row[3])
+        self.assertEqual(row[2], "5")
+
+    def test_linter_declared_in_a_monorepo_package_counts_as_installed(self):
+        self.write(".eslintrc.json", "{}\n")
+        self.write("packages/web/package.json", '{"devDependencies": {"eslint": "^9.0.0"}}\n')
+        self.write("packages/web/src/a.js", "/* eslint-disable no-console */\nconsole.log(1)\n")
+        self.commit()
+        row = self.rows(self.run_audit())[3]
+        self.assertIn("missing tool: 0", row[3])
+        self.assertEqual(row[2], "5")
+
+    def test_session_folder_matches_the_repo_name_as_a_whole_word_not_a_substring(self):
+        self.write("README.md", "x\n")
+        self.commit()
+        self.session("xsample-repo/other", '{"input":{"subagent_type":"sub-review"}}')
+        row = self.rows(self.run_audit())[0]
+        self.assertEqual(row[2], "n/a")
+
+    def test_a_worktree_finds_the_sessions_of_the_main_repo_name(self):
+        self.write("README.md", "x\n")
+        self.commit()
+        wt = os.path.join(self.tmp.name, "feature-wt")
+        git(self.repo, "worktree", "add", "-q", wt, "-b", "feature")
+        self.session("sample-repo/main", '{"input":{"subagent_type":"sub-review"}}')
+        row = self.rows(self.run_audit(repo=wt))[0]
+        self.assertIn("1 of 1 sessions", row[3])
+
+    def test_a_session_log_with_bad_bytes_is_still_counted(self):
+        self.write("README.md", "x\n")
+        self.commit()
+        d = os.path.join(self.projects, "-tmp-sample-repo")
+        os.makedirs(d)
+        with open(os.path.join(d, "bad.jsonl"), "wb") as f:
+            f.write(b'\xff\xfe{"input":{"subagent_type":"sub-review"}}\n')
+        row = self.rows(self.run_audit())[0]
+        self.assertIn("1 of 1 sessions", row[3])
+
+    def test_a_malformed_until_date_is_reported_not_silently_ignored(self):
+        self.write("AGENTS.md", "## Rules\n- Keep it small (until 2026-13-45)\n- Other (until 2026-1-5)\n- Old (until 2020-01-01)\n")
+        self.commit()
+        out = self.run_audit()
+        self.assertIn("invalid date: AGENTS.md:2:", out)
+        self.assertIn("invalid date: AGENTS.md:3:", out)
+        self.assertEqual(out.count("expired: test it or delete it"), 1)
+        self.assertIn("2 invalid dates", self.rows(out)[2][3])
 
 
 class CheatsheetCycle(unittest.TestCase):
