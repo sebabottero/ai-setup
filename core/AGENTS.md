@@ -20,6 +20,8 @@
   first, with tests that guard them. Bug → reproduce it with a test that fails for the right reason, then fix.
 - **Only one session or agent writes** in each worktree. Only what reads runs in parallel: searches, reviews, checks.
 - Without `ticket-flow`: if the change would not fit in one easy-to-review PR, propose the split before writing (until 2027-01-31).
+  "Would not fit" = one strong signal (mixed topics such as refactor + behaviour change, or >400 lines estimated) or two weak ones
+  (several modules or layers, independently testable criteria); below ~150 estimated lines it is always one PR.
   Review then: if I accepted fewer than half of the splits, or size per PR did not drop, adjust the threshold or remove the rule.
 - Do not touch files outside the scope. If needed, propose it as a separate change.
 - Work without asking me while it is local, reversible and verifiable. Stop only at the gates (plan approval, an ambiguous
