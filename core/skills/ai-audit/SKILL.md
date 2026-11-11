@@ -32,7 +32,7 @@ Columns: `#`, `Practice`, `Score`, `Evidence`. The same 8 practices always appea
 | 3 | Enforced rules | `AGENTS.md` rules marked `E:` or `(until YYYY-MM-DD)` |
 | 4 | Real static checks | a linter configured and installed; disable comments for a tool that is missing |
 | 5 | Shared knowledge | `docs/decisions/*.md` and `AGENTS.md` |
-| 6 | Small changes | commits above 400 changed lines |
+| 6 | Small changes | merged PRs above 400 changed lines (first-parent diff vs parent 1); per commit when the default branch has no merge commits, e.g. squash merges |
 | 7 | CI covers what matters | `.github/workflows/*` runs tests and e2e |
 | 8 | Human gate | first-parent commits on the default branch that came through a PR |
 

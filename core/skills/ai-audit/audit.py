@@ -238,24 +238,55 @@ def knowledge(ctx):
     return str(score), f"{len(decisions)} decision records in docs/decisions/; AGENTS.md {'present' if agents else 'missing'}"
 
 
-# 6 -------------------------------------------------------------------------------------------------
-def small_changes(ctx):
-    out = git(ctx["repo"], "log", "--shortstat", "--format=@%h")
-    if not out or "@" not in out:
-        return "n/a", "no git history to measure"
+def default_branch(repo):
+    """The default branch ref (origin/HEAD, main, master, HEAD), or None when there is none."""
+    head = git(repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+    for cand in ([head.strip()] if head else []) + ["main", "master", "HEAD"]:
+        if git(repo, "rev-parse", "--verify", "-q", cand) is not None:
+            return cand
+    return None
+
+
+def shortstat_sizes(out):
+    """{sha: changed lines} from `git log --shortstat --format=@<sha>[<TAB>parents]`."""
     sizes, sha = {}, None
     for line in out.splitlines():
         if line.startswith("@"):
-            sha = line[1:]
+            sha = line[1:].split("\t")[0]
             sizes[sha] = 0
         elif sha and "changed" in line:
             sizes[sha] = sum(int(n) for n in re.findall(r"(\d+) (?:insertion|deletion)", line))
+    return sizes
+
+
+def merged_pr_sizes(repo, branch):
+    """Size of each merge commit on the first-parent line of `branch`: diff against parent 1."""
+    out = git(repo, "log", "--first-parent", "-m", "--shortstat", "--format=@%h%x09%P", branch)
+    if not out:
+        return {}
+    merges = {line[1:].split("\t")[0] for line in out.splitlines()
+              if line.startswith("@") and len(line.split("\t")[-1].split()) > 1}
+    return {sha: n for sha, n in shortstat_sizes(out).items() if sha in merges}
+
+
+# 6 -------------------------------------------------------------------------------------------------
+def small_changes(ctx):
+    """Size per merged PR (first-parent diff vs parent 1) when the default branch has merges, else per commit."""
+    repo = ctx["repo"]
+    branch = default_branch(repo)
+    sizes = merged_pr_sizes(repo, branch) if branch else {}
+    unit = "merged PRs"
+    if not sizes:
+        out = git(repo, "log", "--shortstat", "--format=@%h")
+        if not out or "@" not in out:
+            return "n/a", "no git history to measure"
+        sizes, unit = shortstat_sizes(out), "commits"
     big = {s: n for s, n in sizes.items() if n > BIG_COMMIT}
     if not big:
-        return "5", f"0 of {len(sizes)} commits above {BIG_COMMIT} changed lines"
+        return "5", f"0 of {len(sizes)} {unit} above {BIG_COMMIT} changed lines"
     sha, lines = max(big.items(), key=lambda kv: kv[1])
     score = min(4, score_from_share(1 - len(big) / len(sizes)))
-    return str(score), f"{len(big)} of {len(sizes)} commits above {BIG_COMMIT} changed lines; largest {sha} ({lines} lines)"
+    return str(score), f"{len(big)} of {len(sizes)} {unit} above {BIG_COMMIT} changed lines; largest {sha} ({lines} lines)"
 
 
 # 7 -------------------------------------------------------------------------------------------------
@@ -279,13 +310,7 @@ def ci(ctx):
 # 8 -------------------------------------------------------------------------------------------------
 def human_gate(ctx):
     repo = ctx["repo"]
-    branch = None
-    head = git(repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
-    candidates = ([head.strip()] if head else []) + ["main", "master", "HEAD"]
-    for cand in candidates:
-        if git(repo, "rev-parse", "--verify", "-q", cand) is not None:
-            branch = cand
-            break
+    branch = default_branch(repo)
     out = git(repo, "log", "--first-parent", "--format=%s%x09%P", branch) if branch else None
     if not out:
         return "n/a", "no git history on a default branch"
