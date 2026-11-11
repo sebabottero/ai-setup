@@ -38,7 +38,26 @@ Full steps in [Install](#install).
 | 🔀 **Same rules in every tool** | Write rules, skills and agents once. They install into Claude Code, OpenCode and Codex. Your private bits live in layers (extra folders that add rules on top), not in a fork. |
 | 🧱 **Repos that keep their rules** | `repo-guardrails` prepares any repo with a short `AGENTS.md`, a one-line `CLAUDE.md`, architecture tests that fail the build and a minimal CI. Only the file-scan test is verified; other languages are marked untested. |
 | 🎫 **One writer per ticket** | `flow-ticket` plans, a single `sub-builder` writes in its own git worktree, and review, tests and checks run read-only in parallel. |
-| 🔁 **A full cycle, not just tools** | Each of the 6 steps (decide → guardrails → build → independent review → human gate → learn) has a skill or a gate behind it. |
+| 🔁 **A full cycle, not just tools** | Each of 6 steps has a skill or a gate behind it, and `ai-audit` scores how well a repo follows them. See [The cycle](#the-cycle). |
+
+## The cycle
+Most setups give you tools. This one covers the whole loop of working with an AI agent safely:
+```
+ 1 Decide ─► 2 Guardrails ─► 3 Build ─► 4 Independent ─► 5 Human ─► 6 Learn
+                                          review          gate        │
+   ▲                                                                  │
+   └──────────────── a repeated mistake becomes a rule ◄──────────────┘
+```
+| # | Step | Covered by |
+|---|---|---|
+| 1 | **Decide** | `grillme` interviews you and writes `criteria.md`: goal, out of scope, done criteria |
+| 2 | **Guardrails** | `repo-guardrails`: `AGENTS.md` templates (rules marked `E:` or with an expiry date), risk tiers, CI |
+| 3 | **Build** | `ticket-flow` orchestrates, `sub-builder` writes, `sub-tester` writes one test per criterion |
+| 4 | **Independent review** | `sub-review` checks the diff against `criteria.md`; the merge gate requires its report |
+| 5 | **Human gate** | `ticket-flow` Gate 2 plus the guard's `ask` on commit, push and merge: you decide |
+| 6 | **Learn** | `meta-setup` turns a repeated mistake into a rule; `ai-audit` is the periodic check |
+
+Details per step in the [cheatsheet](https://sebabottero.github.io/ai-setup/cheatsheet.html#cycle).
 
 ## How it decides
 ```
