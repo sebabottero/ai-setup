@@ -12,6 +12,8 @@ Without ai-setup:  agent runs `git push --force origin main`  → done, no quest
 With ai-setup:     agent runs `git push --force origin main`  → 🔴 "needs your explicit OK"
 ```
 
+![The guard allows git status and asks before git push --force and git reset --hard](docs/assets/guard-demo.gif)
+
 ## See it work
 The guard (a small script that checks every shell command the agent wants to run) on real commands:
 ```console
