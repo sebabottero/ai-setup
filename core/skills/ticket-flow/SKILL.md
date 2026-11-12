@@ -104,10 +104,12 @@ After the OK: commit on the ticket branch or the one I name, push, PR. Then run 
 ## 4 · Post-PR re-review
 Once the PR exists (full or short route), run `sub-review` on the committed change against `criteria.md` (only slice K's criteria when it has `## Slices`).
 Write its report with `python3 -I {{AI_SETUP}}/core/guard/review_report.py` so the tree hash matches the commit.
+The report path is the same `<dev root>/reviews/<repo>/<branch>.md`: it overwrites the stage 3 report (intended; the merge gate reads the newest).
 - Short route (tier low): the same re-review applies against the 1-3 line `criteria.md`.
 - The brief carries only the commit, the path to `criteria.md` and the report path, plus "slice K" as a scope pointer when `criteria.md` has `## Slices`; no summary of what was built or what passed.
-- Blocker or Warning: stop and show it. I decide whether a fix commit goes in the same PR; nothing is fixed or pushed on its own.
+- Critical or Warning: stop and show it. I decide whether a fix commit goes in the same PR; nothing is fixed or pushed on its own.
   A fix commit in the same PR makes the report's Tree stale, so stage 4 re-runs on the new commit before posting.
+  This is the one exception to "no intermediate commits": a stage 4 fix commit the user approves.
 - When the result is ready, ask my OK at Gate 2 to post it as a comment on the PR, with `gh pr comment` and only after my OK.
   Nits go in that comment and do not block.
   The result and this OK arrive in a follow-up Gate 2 message after the PR; that ask is part of Gate 2.

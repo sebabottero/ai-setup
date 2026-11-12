@@ -24,9 +24,9 @@ class PostPrReview(unittest.TestCase):
             "only slice k's criteria", "python3 -i {{ai_setup}}/core/guard/review_report.py", "tree hash matches the commit",
         )
 
-    def test_2_blocker_or_warning_stops_and_user_decides(self):
+    def test_2_critical_or_warning_stops_and_user_decides(self):
         self.assert_all(
-            "blocker or warning", "stop and show it", "whether a fix commit goes in the same pr", "nothing is fixed or pushed on its own",
+            "critical or warning: stop and show it", "whether a fix commit goes in the same pr", "nothing is fixed or pushed on its own",
         )
 
     def test_3_ok_at_gate_2_to_post_comment_nits_do_not_block(self):
@@ -65,6 +65,17 @@ class PostPrReview(unittest.TestCase):
         self.assert_all(
             "a fix commit in the same pr makes the report's tree stale",
             "stage 4 re-runs on the new commit before posting",
+        )
+
+    def test_10_report_path_overwrites_stage_3_report(self):
+        self.assert_all(
+            "the report path is the same `<dev root>/reviews/<repo>/<branch>.md`",
+            "it overwrites the stage 3 report", "the merge gate reads the newest",
+        )
+
+    def test_11_stage_4_fix_commit_is_exception_to_no_intermediate_commits(self):
+        self.assert_all(
+            "the one exception to \"no intermediate commits\": a stage 4 fix commit the user approves",
         )
 
 
