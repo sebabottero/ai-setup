@@ -85,6 +85,31 @@ class Install(unittest.TestCase):
         self.assertNotRegex(out, r"(?m)^(write|link|backup|remove) ")
 
 
+class RetiredHooks(unittest.TestCase):
+    OLD = {"type": "command", "command": 'python3 -I "$HOME/.claude/hooks/drive_trace.py"', "timeout": 5}
+    USER = {"type": "command", "command": "my-own-hook.sh"}
+
+    def test_old_entry_is_dropped_and_user_hooks_stay(self):
+        home = tempfile.mkdtemp()
+        os.makedirs(os.path.join(home, ".claude"))
+        path = os.path.join(home, ".claude", "settings.json")
+        with open(path, "w") as f:
+            json.dump({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [self.OLD]},
+                                                {"matcher": "Bash", "hooks": [self.USER, dict(self.OLD)]}]}}, f)
+        self.assertEqual(install(home).returncode, 0)
+        with open(path) as f:
+            first = f.read()
+        hooks = json.loads(first)["hooks"]["PreToolUse"]
+        commands = [h["command"] for g in hooks for h in g["hooks"]]
+        self.assertFalse([c for c in commands if "drive_trace.py" in c])
+        self.assertIn("my-own-hook.sh", commands)
+        self.assertTrue([c for c in commands if "policy_guard.py" in c])
+        self.assertTrue(all(g["hooks"] for g in hooks))
+        self.assertEqual(install(home).returncode, 0)
+        with open(path) as f:
+            self.assertEqual(f.read(), first)
+
+
 class GuardCheck(unittest.TestCase):
     def test_the_hook_asks_for_a_push(self):
         sys.path.insert(0, ROOT)
