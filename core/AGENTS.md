@@ -32,8 +32,8 @@
   Add an **Actions** table: the lines of `~/Dev/logs/actions.log` with this session's id (commands that ran outside the
   sandbox, commits, installs, and every ask), HIGH first, then MEDIUM, then LOW: risk · ran/asked · command. Or "none".
   Outside the sandbox, work without asking only while it writes inside `~/Dev`, the scratchpad or tmp.
-  Scratch dirs (Chrome headless `--user-data-dir`, renders): use a fixed path under `$TMPDIR` or the scratchpad and never `rm` it.
-  `P=$(mktemp -d)` + `rm -rf "$P"` triggers an `rm-outside-tmp` ask: the guard cannot resolve the variable.
+  Scratch dirs: use a fixed path under `$TMPDIR` or the scratchpad and never `rm` it: `P=$(mktemp -d)` + `rm -rf "$P"`
+  triggers an `rm-outside-tmp` ask because the guard cannot resolve the variable.
   Add the changes of medium or high risk (tests, hooks, policy, install scripts), each with one line on its impact.
   Then add **Efficiency** (3-5 lines, only if something concrete could have gone better in this session, else "nothing to adjust"):
   what in my prompt or in the model / effort choice caused rework, and how to ask it next time. Never generic tips.
