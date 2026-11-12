@@ -47,12 +47,14 @@ The rules are plain JSON in [`core/policy.json`](core/policy.json) (shortened he
 ```
 A layer can add rules, never weaken `core/`. More in [Reference](docs/REFERENCE.md).
 
-**Try it in 30 seconds** (changes nothing):
+## Install
+macOS with Homebrew and python3, or Linux with python3.
 ```bash
-git clone https://github.com/sebabottero/ai-setup.git ~/Dev/ai-setup && cd ~/Dev/ai-setup
-./bootstrap.py --dry-run
+git clone https://github.com/sebabottero/ai-setup.git ~/Dev/ai-setup   # clone into the final path: the links point to it
+cd ~/Dev/ai-setup
+./bootstrap.py --dry-run     # shows what it would install, changes nothing
+./bootstrap.py               # tools, then ./install.sh (runs the tests, backs up whatever it replaces)
 ```
-Full steps in [Install](#install).
 
 ## What you get
 | | |
@@ -83,17 +85,17 @@ The guard is one piece. Around it, the whole loop of working with an AI agent, f
 Details per step in the [cheatsheet](https://sebabottero.github.io/ai-setup/cheatsheet.html#cycle).
 
 ## Measure it
-The token audit on a month of real use (`python3 -I adapters/claude/usage_report.py 30`; reads only your local transcripts, sends nothing):
+Example output: the author's own month of use (`python3 -I adapters/claude/usage_report.py 30`; reads only your local transcripts, sends nothing):
 ```console
 Sessions: 149  |  over 150k: 35 (23%)  |  over 300k: 9  |  peak: 772k
 Turns by model: claude-sonnet-5-5 60%, claude-opus-5-5 39%
 Guard: 1233 allowed, 352 asked, 4 denied. Rules that fire most: outside-sandbox 123, git push * 80
 ```
 `/coach` before a task (example): model and effort, plus your request rewritten as *goal · done when · out of scope · start from*.
-Every ~30 days `tune-setup` re-tunes it from your own `/insights` data, and edits only after you approve.
+Every ~30 days `tune-setup` (Claude only) re-tunes it from your own `/insights` data, and edits only after you approve.
 
 `ai-audit` scores any repo, read-only, on how well it follows the cycle: `python3 -I core/skills/ai-audit/audit.py <repo>`.
-Scores are 1-5 and heuristic; "Small changes" measures size per merged PR (per commit when there are no merge commits). In one pilot the same cycle took four practices from weak to strong:
+Scores are 1-5 and heuristic; "Small changes" measures size per merged PR (per commit when there are no merge commits). In one pilot repo the same cycle took four practices from weak to strong:
 ```console
 Practice                  before → after
 3 Enforced rules             1   →  4
@@ -102,15 +104,6 @@ Practice                  before → after
 7 CI covers what matters     2   →  5
 ```
 Review, criteria-linked tests and the human gate stay at 1 there: `ai-audit` measures them over history, not one change.
-
-## Install
-macOS with Homebrew and python3, or Linux with python3.
-```bash
-git clone https://github.com/sebabottero/ai-setup.git ~/Dev/ai-setup   # clone into the final path: the links point to it
-cd ~/Dev/ai-setup
-./bootstrap.py --dry-run     # shows what it would install, changes nothing
-./bootstrap.py               # tools, then ./install.sh (runs the tests, backs up whatever it replaces)
-```
 
 ## Is it for you?
 **Yes** if you use an agent on real repos and want pushes, deletes and secret reads to need your OK, switch between agent tools,
