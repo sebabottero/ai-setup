@@ -46,7 +46,9 @@ class Leaks(unittest.TestCase):
     def test_no_drive_trace_in_public_code(self):
         bad = re.compile(r"rclone|drive-changes", re.I)
         files = [n for n in tracked_files() if n != THIS and (
-            n.endswith((".py", ".sh")) and not n.startswith("tests/") or n in ("core/AGENTS.md", ".claude/settings.json"))]
+            n.endswith((".py", ".sh")) and not n.startswith("tests/")
+            or n.endswith((".js", ".md")) and n.startswith(("core/", "adapters/"))
+            or n in ("core/AGENTS.md", ".claude/settings.json"))]
         self.assertIn("core/AGENTS.md", files)
         hits = [n for n in files if bad.search(read(n))]
         self.assertEqual(hits, [], "Drive trace specifics in public code")

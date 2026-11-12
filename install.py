@@ -327,6 +327,26 @@ def adopt_unmanaged(folder):
 
 
 # ---------------------------------------------------------------- Claude Code
+RETIRED_HOOKS = ("drive_trace.py",)  # scripts we no longer ship; an old entry would point at a missing file and block
+
+
+def drop_retired_hooks(settings):
+    """Remove only our own hook commands (same path shape add_hook writes) for scripts in RETIRED_HOOKS."""
+    gone = {f'python3 -I "$HOME/.claude/hooks/{name}"' for name in RETIRED_HOOKS}
+    events = settings.get("hooks", {})
+    for event in list(events):
+        kept = []
+        for g in events[event]:
+            hooks = g.get("hooks", [])
+            left = [h for h in hooks if h.get("command") not in gone]
+            if left or len(left) == len(hooks):
+                kept.append({**g, "hooks": left} if hooks else g)
+        if kept:
+            events[event] = kept
+        else:
+            del events[event]
+
+
 def add_hook(settings, event, matcher, script, timeout):
     hook = {"type": "command", "command": f'python3 -I "$HOME/.claude/hooks/{script}"', "timeout": timeout}
     groups = settings.setdefault("hooks", {}).setdefault(event, [])
@@ -397,8 +417,8 @@ def install_claude(agents_md):
     # subagents without their own model (general-purpose, claude-code-guide) would inherit the strong session model;
     # our agents set `model` in their frontmatter, which wins over this variable
     settings.setdefault("env", {}).setdefault("CLAUDE_CODE_SUBAGENT_MODEL", "sonnet")
+    drop_retired_hooks(settings)
     add_hook(settings, "PreToolUse", "Bash|mcp__.*", "policy_guard.py", 10)
-    add_hook(settings, "PreToolUse", "Bash", "drive_trace.py", 5)  # logs rclone changes to GDrive: for the receipt, never blocks
     add_hook(settings, "PreToolUse", "Bash", "action_trace.py", 5)  # logs the commands a policy "trace" rule matches, for the receipt; no rules, no-op
     add_hook(settings, "UserPromptSubmit", None, "context_notice.py", 5)  # informational context-size notice
     add_hook(settings, "SessionStart", None, "tune_notice.py", 5)  # informational: /insights data is old, offer tune-setup
@@ -486,7 +506,7 @@ def install_opencode(agents_md):
 
     prune_agents(os.path.join(base, "agents"), all_agent_names("opencode"))
 
-    # a .js file in ~/.config/opencode/plugins/ loads by itself (that is how Orca's status plugin loads)
+    # a .js file in ~/.config/opencode/plugins/ loads by itself (that is how a status plugin loads)
     plugins = os.path.join(ADAPTERS, "opencode", "plugins")
     if os.path.isdir(plugins):
         render_tree(plugins, os.path.join(base, "plugins"))

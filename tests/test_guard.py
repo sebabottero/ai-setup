@@ -62,7 +62,7 @@ class OutsideSandbox(unittest.TestCase):
         for c in ['"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --screenshot=out.png x.html',
                   f"mkdir -p {S}/fontcheck && cp ~/Dev/a.png {S}/fontcheck/ && ffmpeg -y -i a.mp4 {S}/b.png",
                   "cd ~/Dev/android-counter && source ./env.sh && emulator -list-avds",
-                  "cd ~/Dev/app && cat >> env.sh <<'E'\nexport X=1\nE", "rclone copy a.apk GDrive:APKs/",
+                  "cd ~/Dev/app && cat >> env.sh <<'E'\nexport X=1\nE", "cloudcp copy a.apk REMOTE:APKs/",
                   "brew install openjdk@17", "uv tool install 'markitdown[all]'", "echo x > $TMPDIR/a", "echo x > $S/a"]:
             self.assertEqual(guard.decide({"tool": "bash", "command": c, "cwd": os.path.expanduser("~/Dev/repos/x"),
                                            "unsandboxed": True}, dict(POLICY, dev_root="~/Dev")), ("allow", ""), c)
@@ -351,8 +351,8 @@ class ActionLog(unittest.TestCase):
             self.assertNotIn(leaked, text)
 
     def test_paths_are_kept_but_opaque_keys_are_not(self):
-        S = "/private/tmp/claude-501/-Users-botter-Dev-repos-ai-setup/1885185f-95c6-4fed-aad4-ac4adaee94d1/scratchpad"
-        for path in [S, "personal/skills/instagram-estetica/scripts/render_post.py", "~/Library/Caches/some-tool/cache-folder-x"]:
+        S = "/private/tmp/claude-501/-Users-dev-Dev-repos-ai-setup/1885185f-95c6-4fed-aad4-ac4adaee94d1/scratchpad"
+        for path in [S, "skills/some-skill/scripts/render_post.py", "~/Library/Caches/some-tool/cache-folder-x"]:
             self.assertIn(path, guard.redact(f"cd {path} && ls"), path)
         for key in ["Zm9vYmFyYmF6cXV4MTIzNDU2Nzg5MGFiY2RlZmdoaWprbG1ub3A", "aB3dE5fG7hJ9kL1mN3pQ5/rS7tU9vW1xY3zA5bC7dE9fG1hJ",
                     "AbCdEfGh12345678/IjKlMnOp87654321/QrStUvWx13572468"]:

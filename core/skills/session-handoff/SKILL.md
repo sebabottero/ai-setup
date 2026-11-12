@@ -1,6 +1,6 @@
 ---
 name: session-handoff
-description: Write a self-contained handoff prompt so another agent session (another Orca workspace, another tool, or a fresh session) can continue or fix work without this conversation. Use for "write the prompt for the other session", "hand this to the other session", "genera el prompt para la otra sesión", "pásale esto a la otra sesión", "cómo le aviso de los cambios", or before ending a long session.
+description: Write a self-contained handoff prompt so another agent session (another workspace, another tool, or a fresh session) can continue or fix work without this conversation. Use for "write the prompt for the other session", "hand this to the other session", "genera el prompt para la otra sesión", "pásale esto a la otra sesión", "cómo le aviso de los cambios", or before ending a long session.
 ---
 
 # Handoff prompt between sessions

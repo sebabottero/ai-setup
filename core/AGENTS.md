@@ -27,8 +27,6 @@
 - Work without asking me while it is local, reversible and verifiable. Stop only at the gates (plan approval, an ambiguous
   or irreversible decision, scope change, commit / push / merge / tracker writes) and put all questions in one message.
 - Close every task with a **receipt**: changes made · commands run · their outcome · failures · open doubts.
-  Add a **Drive** line: every Google Drive change (rclone on `GDrive:`) made in this session, read from
-  `{{DEV}}/logs/drive-changes.log` (lines with this session's id, HIGH-RISK ones first), or "none". Use `rclone copy`, never `sync`.
   Add an **Actions** table: the lines of `{{DEV}}/logs/actions.log` with this session's id (commands that ran outside the
   sandbox, commits, installs, and every ask), HIGH first, then MEDIUM, then LOW: risk · ran/asked · command. Or "none".
   Outside the sandbox, work without asking only while it writes inside `{{DEV}}`, the scratchpad or tmp.

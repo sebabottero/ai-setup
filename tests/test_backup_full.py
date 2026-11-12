@@ -150,7 +150,7 @@ class BackupPolicy(unittest.TestCase):
         got = self.rels({})
         self.assertEqual(got, [".gitconfig"])
         with open(backup_full.__file__) as f:
-            self.assertNotIn("instagram", f.read().lower())
+            self.assertNotIn("insta" + "gram", f.read().lower())
 
     def test_no_layer_does_not_resolve_dev_folders_to_home(self):
         write(os.path.join(self.home, "handoffs/h.md"))

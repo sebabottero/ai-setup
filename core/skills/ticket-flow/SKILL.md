@@ -17,7 +17,7 @@ After the PR: `4 Post-PR re-review` (`sub-review` on the commit vs `criteria.md`
 - **Only what reads runs in parallel**: exploration, reading the ticket, reviews and checks. Launch them in a single message.
 - **One writer** per ticket, in one worktree. Writing in parallel produces clashing decisions; if the ticket is so big it
   asks for several writers, split it into tickets and tell me at Gate 1.
-- Worktree: if you are already in one (an Orca workspace is one: `git rev-parse --git-dir` ≠ `--git-common-dir`), that is
+- Worktree: if you are already in one (a workspace is already a worktree: `git rev-parse --git-dir` ≠ `--git-common-dir`), that is
   the ticket's; do not create another. If not: `git worktree add <dev root>/worktrees/<repo>/<ticket> -b ai/<ticket> <base>` and pass
   that path as the only working directory.
 - The ticket branch stays local until Gate 2. No intermediate commits: the policy asks for OK on every commit.
@@ -113,10 +113,10 @@ The report path is the same `<dev root>/reviews/<repo>/<branch>.md`: it overwrit
 - When the result is ready, ask my OK at Gate 2 to post it as a comment on the PR, with `gh pr comment` and only after my OK.
   Nits go in that comment and do not block.
   The result and this OK arrive in a follow-up Gate 2 message after the PR; that ask is part of Gate 2.
-- Only after stage 4 is done (and any fix-commit decision), if you created the worktree, delete it (Orca manages the ones it created).
+- Only after stage 4 is done (and any fix-commit decision), if you created the worktree, delete it (leave alone any worktree a workspace manager created).
 
 ## Running unattended
-- One Orca workspace per ticket with the `flow-ticket` agent (Claude Code or OpenCode). Orca tells you when the session is waiting.
-- How to launch it in each tool without Orca: ai-setup README, section "Adapters".
+- One workspace (one worktree) per ticket with the `flow-ticket` agent (Claude Code or OpenCode).
+- How to launch it in each tool in the terminal: ai-setup README, section "Adapters".
 - Between gates ask for nothing: what is local, reversible and verifiable just gets done.
 - **Stop and ask** if a new permission is needed, the scope changes, the expected behaviour is unclear or something would have an external effect.
