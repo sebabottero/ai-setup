@@ -93,7 +93,7 @@ Guard: 1233 allowed, 352 asked, 4 denied. Rules that fire most: outside-sandbox 
 Every ~30 days `tune-setup` re-tunes it from your own `/insights` data, and edits only after you approve.
 
 `ai-audit` scores any repo, read-only, on how well it follows the cycle: `python3 -I core/skills/ai-audit/audit.py <repo>`.
-Scores are 1-5 and heuristic. In one pilot the same cycle took four practices from weak to strong:
+Scores are 1-5 and heuristic; "Small changes" measures size per merged PR (per commit when there are no merge commits). In one pilot the same cycle took four practices from weak to strong:
 ```console
 Practice                  before → after
 3 Enforced rules             1   →  4

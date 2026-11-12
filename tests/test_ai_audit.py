@@ -234,6 +234,35 @@ class Audit(unittest.TestCase):
         self.assertEqual(rows[6][2], "5")
 
 
+    def merge_pr(self, branch, files):
+        """Merge a branch with one commit per (name, lines) file into main with a merge commit."""
+        self.write("base.txt", "base\n")
+        self.commit("base")
+        git(self.repo, "switch", "-q", "-c", branch)
+        for name, n in files:
+            self.write(name, "line\n" * n)
+            self.commit("add " + name)
+        git(self.repo, "switch", "-q", "main")
+        git(self.repo, "merge", "--no-ff", "-q", "-m", "Merge pull request #1 from x/" + branch, branch)
+
+    # Criterion 7
+    def test_7_given_merge_commits_on_main_when_ai_audit_runs_then_small_changes_measures_each_merged_pr_not_each_commit(self):
+        self.merge_pr("big-pr", [("a.txt", 250), ("b.txt", 250)])  # two commits under 400, the PR is 500
+        row = self.rows(self.run_audit())[5]
+        self.assertIn("1 of 1 merged PRs above 400", row[3])
+        self.assertLess(int(row[2]), 5)
+
+    def test_7b_given_a_small_merged_pr_when_ai_audit_runs_then_small_changes_scores_5(self):
+        self.merge_pr("small-pr", [("a.txt", 20)])
+        row = self.rows(self.run_audit())[5]
+        self.assertIn("0 of 1 merged PRs above 400", row[3])
+        self.assertEqual(row[2], "5")
+
+    def test_7c_given_no_merge_commits_when_ai_audit_runs_then_small_changes_falls_back_to_per_commit(self):
+        self.write("big.txt", "line\n" * 500)
+        self.commit("big")
+        self.assertIn("1 of 1 commits above 400", self.rows(self.run_audit())[5][3])
+
     # Review findings on PR 3
     def test_tslint_installed_and_configured_is_not_a_missing_tool(self):
         self.write("package.json", '{"devDependencies": {"tslint": "^6.0.0"}}\n')
