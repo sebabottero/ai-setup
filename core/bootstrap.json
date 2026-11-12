@@ -27,7 +27,6 @@
     "ssh-keygen -t ed25519   and add the public key to your git remote"
   ],
   "manual": [
-    "Install Orca from its website, open it and check that ~/.agents/skills has orca-cli and orchestration",
     "Reconnect the per-project MCP servers: claude mcp add … and /mcp (restart the session afterwards)"
   ]
 }
