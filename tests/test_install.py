@@ -29,6 +29,13 @@ class Install(unittest.TestCase):
     def test_runs(self):
         self.assertEqual(self.run1.returncode, 0, self.run1.stderr)
 
+    def test_action_trace_is_a_pretooluse_bash_hook(self):
+        groups = self.load(".claude", "settings.json")["hooks"]["PreToolUse"]
+        hit = [g for g in groups for h in g["hooks"] if "action_trace.py" in h["command"]]
+        self.assertEqual(len(hit), 1)
+        self.assertEqual(hit[0]["matcher"], "Bash")
+        self.assertTrue(os.path.exists(os.path.join(self.home, ".claude", "hooks", "action_trace.py")))
+
     def test_claude(self):
         s = self.load(".claude", "settings.json")
         commands = [h["command"] for groups in s["hooks"].values() for g in groups for h in g["hooks"]]

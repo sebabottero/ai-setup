@@ -93,6 +93,24 @@ class Parity(unittest.TestCase):
             self.assertEqual(new, old, cmd)
 
 
+# Intentional differences from drive_trace, whose positional-only parsing misses real changes or cannot tell a flag value
+# from a path. The new hook is the one to trust; PARITY above leaves these out.
+KNOWN_DIFFERENCES = [
+    # (command, drive_trace logs it, action_trace logs it)
+    ("rclone copy ./a GDrive:b --exclude x", False, True),  # flag value "x" hides the destination from drive_trace
+    ("rclone copy a GDrive:b c", False, True),  # drive_trace only looks at the last word
+    ("rclone copy --transfers 4 GDrive:a /tmp/x", False, True),  # a download, but the flag value "4" shifts the words: over-logged
+]
+
+
+class KnownDifferences(unittest.TestCase):
+    def test_documented_differences(self):
+        import drive_trace
+        for cmd, old, new in KNOWN_DIFFERENCES:
+            self.assertEqual(bool(drive_trace.changes(cmd)), old, cmd)
+            self.assertEqual(bool(action_trace.changes(cmd, [RULE])), new, cmd)
+
+
 class Hook(unittest.TestCase):
     def run_hook(self, command, tool="Bash", policy="rule"):
         base = tempfile.mkdtemp()
