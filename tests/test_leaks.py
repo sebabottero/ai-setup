@@ -6,6 +6,8 @@ THIS = os.path.relpath(os.path.abspath(__file__), ROOT)
 # Author name and handle contain a banned term; they are stripped before scanning.
 ALLOWED_TOKENS = re.compile(r"sebabottero|Seba Bottero", re.I)
 TERMS = re.compile(r"botter|instagram|GDrive|Orca|mercury|adhd", re.I)
+# Files allowed to hold personal terms: none today. Add a path here only with a reason in the PR.
+PATH_ALLOWLIST = frozenset()
 SKIP_DIRS = {".git", "__pycache__", "node_modules"}
 BINARY = (".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf", ".woff", ".woff2", ".pyc", ".zip")
 
@@ -34,7 +36,7 @@ def read(name):
 
 class Leaks(unittest.TestCase):
     def test_no_personal_terms(self):
-        files = [n for n in tracked_files() if n != THIS]
+        files = [n for n in tracked_files() if n != THIS and n not in PATH_ALLOWLIST]
         self.assertGreater(len(files), 20)
         hits = []
         for name in files:
