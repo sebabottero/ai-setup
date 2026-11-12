@@ -26,7 +26,7 @@ class PostPrReview(unittest.TestCase):
 
     def test_2_blocker_or_warning_stops_and_user_decides(self):
         self.assert_all(
-            "blocker or warning", "stop and show it", "same pr", "nothing is fixed or pushed on its own",
+            "blocker or warning", "stop and show it", "whether a fix commit goes in the same pr", "nothing is fixed or pushed on its own",
         )
 
     def test_3_ok_at_gate_2_to_post_comment_nits_do_not_block(self):
@@ -46,6 +46,7 @@ class PostPrReview(unittest.TestCase):
     def test_6_brief_carries_only_commit_criteria_path_and_report_path(self):
         self.assert_all(
             "the brief carries only the commit, the path to `criteria.md` and the report path",
+            "plus \"slice k\" as a scope pointer when `criteria.md` has `## slices`",
             "no summary of what was built or what passed",
         )
 
@@ -58,6 +59,12 @@ class PostPrReview(unittest.TestCase):
     def test_8_follow_up_message_is_part_of_gate_2(self):
         self.assert_all(
             "arrive in a follow-up gate 2 message after the pr; that ask is part of gate 2",
+        )
+
+    def test_9_fix_commit_makes_report_stale_and_rerun_before_posting(self):
+        self.assert_all(
+            "a fix commit in the same pr makes the report's tree stale",
+            "stage 4 re-runs on the new commit before posting",
         )
 
 
