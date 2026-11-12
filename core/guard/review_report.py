@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Review reports: where sub-review writes them, what they say, and the git facts the merge gate compares them with.
 
-  python3 -I review_report.py header [--dir D] [--dev-root ~/Dev] [--verdict PASS|FAIL|"NEEDS CHANGES"]
+  python3 -I review_report.py header [--dir D] [--dev-root DIR] [--verdict PASS|FAIL|"NEEDS CHANGES"]
     first line: the report path (<dev_root>/reviews/<repo>/<branch>.md); then the header block to paste at the top of it.
 
 A report is fresh when its `Commit:` is the branch head, or its `Tree:` is the head's tree (work reviewed before it was committed).

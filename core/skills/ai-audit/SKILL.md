@@ -17,7 +17,7 @@ python3 -I {{AI_SETUP}}/core/skills/ai-audit/audit.py <repo> [--today YYYY-MM-DD
 |---|---|---|
 | `--today` | the current date | Date to compare `until` dates with |
 | `--projects-dir` | `~/.claude/projects` | Where the session logs live (practice 1) |
-| `--dev-root` | env `AI_AUDIT_DEV_ROOT`, else `~/Dev` | Folder with `reviews/<repo>/` and `handoffs/*/criteria.md` |
+| `--dev-root` | env `AI_AUDIT_DEV_ROOT`, else the layers' `dev_root` (`~` if none) | Folder with `reviews/<repo>/` and `handoffs/*/criteria.md` |
 
 Redirect the output if you want to keep it (for example into `<dev root>/reviews/`), never into the repo. It does not fix anything.
 

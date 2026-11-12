@@ -6,7 +6,7 @@ Usage: python3 -I audit.py <repo> [--today YYYY-MM-DD] [--projects-dir DIR] [--d
 Scores are 1-5 heuristics (or n/a when the data is missing), a conversation starter and not a grade.
 Nothing is ever written: git runs read-only commands and everything else is a file read.
 """
-import argparse, datetime, fnmatch, glob, os, re, subprocess, sys
+import argparse, datetime, fnmatch, glob, json, os, re, subprocess, sys
 
 PRACTICES = [
     "Independent review", "Tests tied to intent", "Enforced rules", "Real static checks",
@@ -334,13 +334,29 @@ def audit(repo, today, projects_dir, dev_root):
     return results, expired, invalid
 
 
+def default_dev_root():
+    """env AI_AUDIT_DEV_ROOT, else the layers' dev_root (home when no layer sets one)."""
+    if os.environ.get("AI_AUDIT_DEV_ROOT"):
+        return os.environ["AI_AUDIT_DEV_ROOT"]
+    try:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))), "guard"))
+        import guard, layers
+        given = os.environ.get("AI_SETUP_POLICY")
+        if given:
+            with open(given) as f:
+                return layers.dev_root(json.load(f))
+        return layers.dev_root(guard.load())
+    except Exception:
+        return "~"
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Score a repo against 8 generic practices (read-only, stdout only).")
     ap.add_argument("repo")
     ap.add_argument("--today", default=None, help="YYYY-MM-DD, default: today")
     ap.add_argument("--projects-dir", default=os.path.expanduser("~/.claude/projects"))
-    ap.add_argument("--dev-root", default=os.environ.get("AI_AUDIT_DEV_ROOT", os.path.expanduser("~/Dev")),
-                    help="folder with reviews/ and handoffs/ (env AI_AUDIT_DEV_ROOT, default ~/Dev)")
+    ap.add_argument("--dev-root", default=default_dev_root(),
+                    help="folder with reviews/ and handoffs/ (env AI_AUDIT_DEV_ROOT, default: the layers' dev_root, else ~)")
     args = ap.parse_args(argv)
     repo = os.path.realpath(os.path.expanduser(args.repo))
     if not os.path.isdir(repo):
