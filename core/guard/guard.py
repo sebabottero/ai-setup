@@ -620,10 +620,22 @@ def notable(event, policy, decision, rule):
     return None
 
 
+def actions_log_path(policy=None):
+    """AI_SETUP_ACTIONS_LOG, else <dev_root>/logs/actions.log (dev_root of the layers, home when none sets one)."""
+    given = os.environ.get("AI_SETUP_ACTIONS_LOG")
+    if given:
+        return os.path.expanduser(given)
+    try:
+        dev = layers.dev_root(load() if policy is None else policy)
+    except (OSError, ValueError):
+        dev = "~"
+    return os.path.expanduser(os.path.join(dev, "logs", "actions.log"))
+
+
 def log_action(event, decision, risk, rule, reason=""):
-    """One line per notable command in AI_SETUP_ACTIONS_LOG (default ~/Dev/logs/actions.log; "off" disables): time,
+    """One line per notable command in AI_SETUP_ACTIONS_LOG (default <dev_root>/logs/actions.log; "off" disables): time,
     session, risk, what happened (ran / asked / denied), rule, redacted command. The task receipt reads it."""
-    path = os.path.expanduser(os.environ.get("AI_SETUP_ACTIONS_LOG") or "~/Dev/logs/actions.log")
+    path = actions_log_path()
     if path == "off":
         return
     what = {"allow": "ran", "ask": "asked"}.get(decision, decision)

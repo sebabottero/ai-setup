@@ -1,11 +1,15 @@
 """backup.sh --full / --restore: allowlist only, secrets never copied, round-trip, no overwrite. A fake `age` stands in for the real one."""
+import json
 import os
 import subprocess
 import tarfile
 import tempfile
+import sys
 import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+import backup_full
 FAKE_AGE = """#!/bin/sh
 # -p -o OUT IN  /  -d -o OUT IN
 mode=$1; out=$3; in=$4
@@ -31,15 +35,19 @@ class BackupFull(unittest.TestCase):
         h = self.home
         write(f"{h}/.gitconfig", "[user]")
         write(f"{h}/Dev/handoffs/a.md", "handoff")
-        write(f"{h}/Dev/instagram-estetica/brand.md", "brand")
-        write(f"{h}/Dev/instagram-estetica/models/big.bin", "model")
-        write(f"{h}/Dev/instagram-estetica/exports/big.mp4", "export")
+        write(f"{h}/Dev/side-project/brand.md", "brand")
+        write(f"{h}/Dev/side-project/models/big.bin", "model")
+        write(f"{h}/Dev/side-project/exports/big.mp4", "export")
         write(f"{h}/.claude/projects/p1/memory/m.md", "memory")
         write(f"{h}/.claude/projects/p1/session.jsonl", "transcript")
         write(f"{h}/.ssh/id_ed25519", "SECRET")
         write(f"{h}/.config/gh/hosts.yml", "SECRET")
         write(f"{h}/.claude.json", "SECRET")
-        self.env = {**os.environ, "HOME": h, "PATH": f"{self.bin}:/usr/bin:/bin"}
+        policy = os.path.join(t, "policy.json")  # a fake layer: its folders to include and exclude
+        with open(policy, "w") as f:
+            json.dump({"dev_root": "~/Dev", "backup": {"include": ["{{DEV}}/side-project"],
+                       "exclude": ["{{DEV}}/side-project/models", "{{DEV}}/side-project/exports"]}}, f)
+        self.env = {**os.environ, "HOME": h, "PATH": f"{self.bin}:/usr/bin:/bin", "AI_SETUP_POLICY": policy}
 
     def tearDown(self):
         self._t.cleanup()
@@ -81,9 +89,9 @@ class BackupFull(unittest.TestCase):
         self.assertIn(".gitconfig", names)
         self.assertIn("Dev/handoffs/a.md", names)
         self.assertIn(".claude/projects/p1/memory/m.md", names)
-        self.assertIn("Dev/instagram-estetica/brand.md", names)
+        self.assertIn("Dev/side-project/brand.md", names)
         for bad in (".ssh/id_ed25519", ".config/gh/hosts.yml", ".claude.json", ".claude/projects/p1/session.jsonl",
-                    "Dev/instagram-estetica/models/big.bin", "Dev/instagram-estetica/exports/big.mp4"):
+                    "Dev/side-project/models/big.bin", "Dev/side-project/exports/big.mp4"):
             self.assertNotIn(bad, names)
         self.assertTrue(os.path.exists(os.path.join(self.dest, "RESTORE.md")))
         self.assertNotIn("SECRET", open(age_file, "rb").read().decode("latin1"))
@@ -111,6 +119,52 @@ class BackupFull(unittest.TestCase):
         r = self.run_sh("--full", self.dest, "--dry-run")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("r: uncommitted changes", r.stdout)
+
+
+class BackupPolicy(unittest.TestCase):
+    """The personal folders come from a layer's policy `backup`; with none, no personal folder is backed up."""
+
+    def setUp(self):
+        self._t = tempfile.TemporaryDirectory()
+        self.home = os.path.join(self._t.name, "home")
+        for rel in ("Dev/notes/a.md", "Dev/notes/skip/b.md", "Dev/other/c.md", ".gitconfig"):
+            write(os.path.join(self.home, rel))
+        write(os.path.join(self.home, ".secret-thing/k"), "SECRET")
+
+    def tearDown(self):
+        self._t.cleanup()
+
+    def rels(self, policy):
+        files, _ = backup_full.expand(self.home, policy)
+        return sorted(r for _, r, _ in files)
+
+    def test_layer_include_and_exclude_are_exact(self):
+        policy = {"dev_root": "~/Dev", "backup": {"include": ["{{DEV}}/notes"], "exclude": ["{{DEV}}/notes/skip"]}}
+        got = self.rels(policy)
+        self.assertIn("Dev/notes/a.md", got)
+        self.assertNotIn("Dev/notes/skip/b.md", got)
+        self.assertNotIn("Dev/other/c.md", got)
+        self.assertIn(".gitconfig", got)  # the generic items stay
+
+    def test_no_layer_backs_up_no_personal_folder(self):
+        got = self.rels({})
+        self.assertEqual(got, [".gitconfig"])
+        with open(backup_full.__file__) as f:
+            self.assertNotIn("instagram", f.read().lower())
+
+    def test_no_layer_does_not_resolve_dev_folders_to_home(self):
+        write(os.path.join(self.home, "handoffs/h.md"))
+        write(os.path.join(self.home, "ai-notes/n.md"))
+        self.assertEqual(self.rels({}), [".gitconfig"])
+        got = self.rels({"dev_root": "~/Dev"})  # with a dev_root they live under it
+        self.assertNotIn("handoffs/h.md", got)
+        write(os.path.join(self.home, "Dev/handoffs/d.md"))
+        self.assertIn("Dev/handoffs/d.md", self.rels({"dev_root": "~/Dev"}))
+
+    def test_by_hand_comes_from_the_layer(self):
+        items = backup_full.by_hand_items(self.home, {"backup": {"by_hand": [[".secret-thing", "my secret"]]}})
+        self.assertIn((".secret-thing", "my secret"), items)
+        self.assertNotIn(".secret-thing", [p for p, _ in backup_full.by_hand_items(self.home, {})])
 
 
 if __name__ == "__main__":

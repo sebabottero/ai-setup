@@ -9,6 +9,7 @@ Only the allowlist below is read. Secrets are never opened: they are only listed
 import argparse
 import glob
 import io
+import json
 import os
 import shutil
 import subprocess
@@ -17,11 +18,15 @@ import tarfile
 import tempfile
 import time
 
-# Paths relative to $HOME. A path ending in "/*/memory" is a glob.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), "core", "guard"))
+import layers
+
+# The generic part. A layer adds its own folders in its policy.json:
+#   "backup": {"include": [...], "exclude": [...], "by_hand": [["path", "why"], ...]}
+# Paths are relative to $HOME, {{DEV}} is the layers' dev_root. A path with "*" is a glob.
 INCLUDE = [
-    "Dev/instagram-estetica",
-    "Dev/handoffs",
-    "Dev/ai-notes",
+    "{{DEV}}/handoffs",
+    "{{DEV}}/ai-notes",
     ".claude/projects/*/memory",
     ".claude/history.jsonl",
     ".gitconfig",
@@ -31,8 +36,8 @@ INCLUDE = [
     ".config/opencode",
     ".config/anthropic",
 ]
-# Top-level folders left out of an included folder (relative to $HOME)
-EXCLUDE = {"Dev/instagram-estetica/models", "Dev/instagram-estetica/exports"}
+# Folders left out of an included folder (relative to $HOME); a layer adds more
+EXCLUDE = set()
 SKIP_NAMES = {".DS_Store", "__pycache__"}
 # Listed, never opened
 BY_HAND = [
@@ -42,8 +47,6 @@ BY_HAND = [
     (".claude.json", "Claude account, MCP config (run `claude mcp add` again)"),
     (".zsh_history", "may hold pasted secrets"),
     (".config/gh", "GitHub token (run `gh auth login`)"),
-    ("Dev/instagram-estetica/models", "800 MB with export"),
-    ("Dev/instagram-estetica/exports", "800 MB with models"),
     (".claude/projects", "session transcripts (only memory/ is in the backup)"),
 ]
 BY_HAND_PATTERNS = ["every .env.local", "every appsettings.*.local.json"]
@@ -54,9 +57,58 @@ def home_dir():
     return os.path.expanduser("~")
 
 
-def expand(home):
+def load_policy():
+    """The composed policy of the installed layers. AI_SETUP_POLICY points at another file (tests)."""
+    try:
+        given = os.environ.get("AI_SETUP_POLICY")
+        if given:
+            with open(given) as f:
+                return json.load(f)
+        import guard
+        return guard.load()
+    except (OSError, ValueError):
+        return {}
+
+
+def dev_dir(home, policy):
+    """The layers' dev_root as an absolute path under `home` (home itself when no layer sets one)."""
+    dev = layers.dev_root(policy)
+    return home + dev[1:] if dev.startswith("~") else dev
+
+
+def rel_path(text, home, policy):
+    """A policy path as relative to $HOME, with {{DEV}} expanded."""
+    if "{{DEV}}" in text:
+        return os.path.relpath(text.replace("{{DEV}}", dev_dir(home, policy)), home)
+    return text.strip("/")
+
+
+def listed(policy, key):
+    given = policy.get("backup", {}).get(key, []) if isinstance(policy.get("backup"), dict) else []
+    return given if isinstance(given, list) else []
+
+
+def includes(home, policy):
+    # the generic {{DEV}} folders only count when a layer sets a dev_root; otherwise they would resolve to ~/handoffs
+    core = [p for p in INCLUDE if "{{DEV}}" not in p or "dev_root" in policy]
+    return list(dict.fromkeys(rel_path(p, home, policy) for p in core + [p for p in listed(policy, "include") if isinstance(p, str)]))
+
+
+def excludes(home, policy):
+    return {rel_path(p, home, policy) for p in EXCLUDE | {p for p in listed(policy, "exclude") if isinstance(p, str)}}
+
+
+def by_hand_items(home, policy):
+    """(path, why) the user has to copy by hand, that exist: the generic ones plus the layers'."""
+    extra = [tuple(x) for x in listed(policy, "by_hand") if isinstance(x, (list, tuple)) and len(x) == 2]
+    return [(rel_path(p, home, policy), why) for p, why in BY_HAND + extra if os.path.lexists(os.path.join(home, rel_path(p, home, policy)))]
+
+
+def expand(home, policy=None):
     """Files to back up as (absolute, relative, include pattern), plus skipped symlinks."""
+    policy = load_policy() if policy is None else policy
     files, skipped = [], []
+    skip = excludes(home, policy)
 
     def add(path, pattern):
         rel = os.path.relpath(path, home)
@@ -65,14 +117,14 @@ def expand(home):
         elif os.path.isfile(path):
             files.append((path, rel, pattern))
 
-    for pattern in INCLUDE:
+    for pattern in includes(home, policy):
         for root in sorted(glob.glob(os.path.join(home, pattern))):
             if os.path.isfile(root) or os.path.islink(root):
                 add(root, pattern)
                 continue
             for dirpath, dirs, names in os.walk(root):
                 reldir = os.path.relpath(dirpath, home)
-                dirs[:] = sorted(d for d in dirs if d not in SKIP_NAMES and os.path.join(reldir, d) not in EXCLUDE)
+                dirs[:] = sorted(d for d in dirs if d not in SKIP_NAMES and os.path.join(reldir, d) not in skip)
                 for n in sorted(names):
                     if n not in SKIP_NAMES:
                         add(os.path.join(dirpath, n), pattern)
@@ -91,10 +143,10 @@ def git(repo, *args):
     return r.stdout if r.returncode == 0 else ""
 
 
-def repo_warnings(home):
+def repo_warnings(home, policy=None):
     """Dirty repos and branches that are not pushed. Warns, never blocks."""
     out = []
-    for repo in sorted(glob.glob(os.path.join(home, "Dev", "repos", "*"))):
+    for repo in sorted(glob.glob(os.path.join(dev_dir(home, load_policy() if policy is None else policy), "repos", "*"))):
         if not os.path.exists(os.path.join(repo, ".git")):
             continue
         name = os.path.basename(repo)
@@ -116,7 +168,7 @@ def brewfile():
     return r.stdout if r.returncode == 0 and r.stdout else None
 
 
-def restore_md(by_hand, date):
+def restore_md(by_hand, date, dev="~"):
     lines = [
         f"# Restore of the AI setup ({date})",
         "",
@@ -124,10 +176,10 @@ def restore_md(by_hand, date):
         "",
         "## Steps",
         "1. Install Homebrew, then `brew install age git`.",
-        "2. Clone the engine and your layers: `git clone https://github.com/sebabottero/ai-setup.git ~/Dev/repos/ai-setup` and the same for `ai-setup-personal`.",
-        "3. Restore: `~/Dev/repos/ai-setup/backup.sh --restore <this folder>/ai-personal-*.tar.age` (use `--home DIR` to try it first; it never overwrites, `--force` keeps a `.bak`).",
+        f"2. Clone the engine and your layers: `git clone https://github.com/sebabottero/ai-setup.git {dev}/repos/ai-setup` and the same for each layer you keep outside it.",
+        f"3. Restore: `{dev}/repos/ai-setup/backup.sh --restore <this folder>/ai-personal-*.tar.age` (use `--home DIR` to try it first; it never overwrites, `--force` keeps a `.bak`).",
         "4. `brew bundle --file ~/Brewfile`",
-        "5. `~/Dev/repos/ai-setup/install.sh`",
+        f"5. `{dev}/repos/ai-setup/install.sh`",
         "6. `gh auth login` and `claude mcp add ...` again (restart the session after).",
         "",
         "## Copy by hand (not in the backup)",
@@ -146,14 +198,15 @@ def add_bytes(tar, name, data):
 
 def full(args):
     home = home_dir()
-    files, skipped = expand(home)
+    policy = load_policy()
+    files, skipped = expand(home, policy)
     total = sum(os.path.getsize(p) for p, _, _ in files)
-    by_hand = [(p, why) for p, why in BY_HAND if os.path.lexists(os.path.join(home, p))]
-    warnings = repo_warnings(home)
+    by_hand = by_hand_items(home, policy)
+    warnings = repo_warnings(home, policy)
     date = time.strftime("%Y%m%d")
 
     print(f"IN ({len(files)} files, {human(total)}):")
-    for pattern in INCLUDE:
+    for pattern in includes(home, policy):
         mine = [p for p, _, pat in files if pat == pattern]
         if mine:
             print(f"  ~/{pattern}  {len(mine)} files, {human(sum(os.path.getsize(p) for p in mine))}")
@@ -186,7 +239,7 @@ def full(args):
             brew = brewfile()
             if brew:
                 add_bytes(tar, "Brewfile", brew.encode())
-            doc = restore_md(by_hand, date)
+            doc = restore_md(by_hand, date, layers.dev_root(policy))
             add_bytes(tar, "RESTORE.md", doc.encode())
             names = [r for _, r, _ in files] + (["Brewfile"] if brew else [])
             add_bytes(tar, "MANIFEST", ("\n".join(names) + "\n").encode())

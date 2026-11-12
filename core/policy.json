@@ -77,7 +77,7 @@
     "gh pr view*", "gh pr list*", "gh pr diff*", "gh pr checks*", "gh issue view*", "gh issue list*",
     "gh run view*", "gh run list*"
   ],
-  "_log_commands": "Run without asking but are listed in the task receipt (~/Dev/logs/actions.log), like every command that runs outside the sandbox.",
+  "_log_commands": "Run without asking but are listed in the task receipt ({{DEV}}/logs/actions.log), like every command that runs outside the sandbox.",
   "log_commands": [
     "git commit *",
     "brew install *", "brew upgrade *", "brew uninstall *", "brew reinstall *",
