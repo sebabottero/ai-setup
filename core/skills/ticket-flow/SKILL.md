@@ -63,10 +63,12 @@ Write `<dev root>/handoffs/<ticket>/plan.md` (never in the repo):
 - the writer's steps, in order, and which files each touches;
 - for a feature, the seams to test (`tdd` skill): public interface and what each one covers;
 - risks and open questions;
-- a **criteria map**: each criterion → the step(s) and test that cover it; a step with no criterion is extra scope (drop it or flag it).
+- a **criteria map**: each criterion → the step(s) and test that cover it; a step with no criterion is extra scope: drop it, or list it under "extras" in the Gate 1 summary.
 
 **Plan critic.** Full route only. Before Gate 1, one `sub-review` (read-only, one round) attacks `plan.md` with a fixed question: what breaks, what is missing, what is extra?
-Fix what it finds yourself; Gate 1 mentions it only if something stays unresolved.
+Its input is `plan.md`, `criteria.md` and the 0a contract (there is no diff yet); it writes to `<dev root>/handoffs/<ticket>/plan-critic.md`, never to the review report path the merge gate reads.
+Fix what it finds yourself, but only inside the 0a contract and `criteria.md`; a fix that would change either is unresolved.
+Gate 1 mentions the critic only for unresolved findings.
 
 **Split signal.** One strong signal (mixed topics such as refactor + behaviour change, or >400 lines estimated) or two weak ones (several modules or layers, independently testable criteria): propose a split into several PRs. Below ~150 estimated lines it is always a single PR, with no discussion.
 **With slices.** If `criteria.md` has `## Slices`, the user names slice K in the run's args (default: the first slice not yet merged); its build covers only slice K's criteria: the 0a contract and its allowlist (K is chosen first, at 0a), the plan, the writer's allowlist and the review.
