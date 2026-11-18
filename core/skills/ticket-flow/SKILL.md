@@ -95,11 +95,11 @@ goal, the contract's allowlist (reject what falls outside), out of scope, how to
 A single message with:
 1. **Receipt:** changes made · commands run · their outcome · failures · open doubts.
 2. Acceptance criteria: ✅ / 🟡 / ❌ with evidence.
-3. Draft PR description (in the format of earlier PRs; use your writing skill if you have one).
+3. Draft PR description. Before drafting, read the repo's PR template (`.github/pull_request_template.md`) and fill every section; if none exists, use the format of earlier PRs. Use your writing skill if you have one.
 4. Pending items and extras found, split into "in scope" and "extras".
 5. What you need from me: commit + push + PR + tracker (the config will ask for OK on each).
 
-After the OK: commit on the ticket branch or the one I name, push, PR. Then run stage 4 below; the worktree stays until it is done.
+After the OK: commit on the ticket branch or the one I name, push, PR (body from the repo's PR template, every section filled; no template: the format of earlier PRs). Then run stage 4 below; the worktree stays until it is done.
 
 ## 4 · Post-PR re-review
 Once the PR exists (full or short route), run `sub-review` on the committed change against `criteria.md` (only slice K's criteria when it has `## Slices`).
