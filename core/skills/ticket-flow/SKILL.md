@@ -8,7 +8,7 @@ description: Run a whole ticket end to end - understand, plan, build, test, docs
 ## Map
 ```
 0 Contract ► Understand ──► 1 Plan ──► ⛔ GATE 1 ──► 2 Build (one writer, one worktree) ──► 3 Validate ‖ Review ──► ⛔ GATE 2
-   ‖ Explore x N                         bug: sub-tester first                       leaf-verify ‖ sub-review
+   ‖ Explore x N          + plan critic    bug: sub-tester first                       leaf-verify ‖ sub-review
 ```
 After the PR: `4 Post-PR re-review` (`sub-review` on the commit vs `criteria.md`), then the comment OK at Gate 2.
 `‖` = in parallel, in the same turn. Small tasks skip stages: say which ones and why.
