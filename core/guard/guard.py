@@ -116,36 +116,62 @@ def rm_outside_tmp(seg):
     return True, None
 
 
-ASSIGN = re.compile(r"""(?:^|[;&|\n]\s*)(?:export\s+)?([A-Za-z_]\w*)=(?:"([^"$`\\]*)"|'([^']*)'|([^\s;&|"'$`\\]+))""")
+ASSIGN = re.compile(r"""(?:^|[;&|\n]\s*)(?:export\s+)?([A-Za-z_]\w*)=(?:"([^"$`\\]*)"|'([^']*)'|([^\s;&|"'$`\\]+))(?=\s*(?:&&|;|\n|$))""")
+UNSAFE_AROUND = re.compile(r"\|\||\||&|[(){}`]|\b(?:eval|source|read|declare|typeset|local|unset|export|exec)\b")
+
+
+def _stable(command, m, use_at):
+    """True when the assignment m is certain to have run, unchanged, when the text at use_at runs."""
+    before = NO_OUTPUT.sub("", command[:m.start(1)])
+    between = NO_OUTPUT.sub("", command[m.end():use_at])
+    if UNSAFE_AROUND.search(before.replace("&&", " ")) or UNSAFE_AROUND.search(between.replace("&&", " ")):
+        return False
+    if re.search(r"(?<![\w$])%s\b" % re.escape(m.group(1)), between):  # the name is rebound: S=..., unset S, read S, for S
+        return False
+    if "&&" in before:  # the assignment may be skipped (false && S=/tmp/a): only a chain of && up to the use is safe
+        return not re.search(r"[;\n]", between)
+    return True
 
 
 def expand_assigned(command):
-    """Replace $VAR / ${VAR} with the literal value assigned earlier in the same command (S=/tmp/x; rm -rf $S/a), so the
-    rm check judges the real path. Only plain literals and only uses after the assignment; anything else stays as written."""
-    for m in ASSIGN.finditer(command):
-        value = next(g for g in m.groups()[1:] if g is not None)
-        head, tail = command[:m.end()], command[m.end():]
-        command = head + re.sub(r"\$\{%s\}|\$%s\b" % (m.group(1), m.group(1)), lambda _: value, tail)
-    return command
+    """Replace $VAR / ${VAR} with the literal assigned earlier in the same command (S=/tmp/x; rm -rf $S/a), so the rm
+    check judges the real path. Only when the assignment surely ran, unchanged, before the use; otherwise $VAR stays
+    as written and the rm asks."""
+    assigns = list(ASSIGN.finditer(command))
+    if not assigns:
+        return command
+    names = "|".join(sorted({re.escape(m.group(1)) for m in assigns}, key=len, reverse=True))
+    out, last = [], 0
+    for use in re.finditer(r"\$\{(%s)\}|\$(%s)\b" % (names, names), command):
+        name = use.group(1) or use.group(2)
+        prior = [m for m in assigns if m.group(1) == name and m.end() <= use.start()]
+        if prior and _stable(command, prior[-1], use.start()):
+            out += [command[last:use.start()], next(g for g in prior[-1].groups()[1:] if g is not None)]
+            last = use.end()
+    return "".join(out) + command[last:]
 
 
-_Q = r"""['"]"""
-_ARG = _Q + r"""(?!--output|--ext-diff|--textconv)[^'"$\\\n]*""" + _Q
-_MOD = r"(?:subprocess|__import__\(" + _Q + r"subprocess" + _Q + r"\))"
+_STR = r"""(?:'{c}'|"{c}")"""  # one whole string: its content holds no quote, so quotes can never be mispaired
+_C = r"""[^'"$\\\n]*"""
+_ARG = _STR.format(c=r"""(?!--output|--ext-diff|--textconv)""" + _C)
+_MOD = r"(?<![\w.])(?:subprocess|__import__\(" + _STR.format(c="subprocess") + r"\))"
 READ_ONLY_GIT_CALL = re.compile(
-    _MOD + r"\s*\.\s*(?:check_output|run|check_call|call)\(\s*\[\s*" + _Q + r"git" + _Q
-    + r"(?:\s*,\s*" + _Q + r"-C" + _Q + r"\s*,\s*" + _Q + r"[^'\"$\\\n]*" + _Q + r")?"
-    + r"\s*,\s*" + _Q + r"(?:show|ls-files|diff|log|status)" + _Q + r"(?:\s*,\s*" + _ARG + r")*\s*,?\s*\]"
-    + r"(?:\s*,\s*(?:text|check|cwd|capture_output|encoding|stderr)\s*=\s*[\w.'\"/-]+)*\s*\)")
+    _MOD + r"\s*\.\s*(?:check_output|run|check_call|call)\(\s*\[\s*" + _STR.format(c="git")
+    + r"(?:\s*,\s*" + _STR.format(c="-C") + r"\s*,\s*" + _STR.format(c=_C) + r")?"
+    + r"\s*,\s*" + _STR.format(c="(?:show|ls-files|diff|log|status)") + r"(?:\s*,\s*" + _ARG + r")*\s*,?\s*\]"
+    + r"(?:\s*,\s*(?:text|check|capture_output|encoding|stderr)\s*=\s*[\w.'\"/-]+)*\s*\)")
 PLAIN_IMPORT = re.compile(r"(?m)^[ \t]*import[ \t]+(?![^\n]*\bas\b)[\w., \t]+$")
+DYNAMIC_PYTHON = re.compile(r"__import__|importlib|getattr|\beval\b|\bexec\b|compile\(|globals|builtins")
 
 
 def strip_read_only_git(command):
     """The command without inline-python calls that only run read-only git (list form, literal args, no shell) and without
     plain `import ...` lines, so RUNS_COMMANDS judges what is left. `from subprocess import x`, `as` aliases, shell=True,
-    other programs or other git subcommands stay in the text and still ask."""
+    other programs, other git subcommands and dynamic imports stay in the text and still ask."""
     stripped, n = READ_ONLY_GIT_CALL.subn("", command)
-    return PLAIN_IMPORT.sub("", stripped) if n else command  # a bare `import subprocess` alone still asks
+    if not n or DYNAMIC_PYTHON.search(stripped):  # a bare `import subprocess` alone still asks
+        return command
+    return PLAIN_IMPORT.sub("", stripped)
 
 
 def tea_read_only(seg):
