@@ -248,6 +248,9 @@ class Allows(unittest.TestCase):
                   "echo 'x;S=/tmp/a;'; rm -rf $S/etc", "S=/tmp/a; for i in 1 2; do rm -rf $S/x; S=/etc; done",
                   "readonly S=/etc; S=/tmp/a; rm -rf $S/x", "S=/tmp/a; . ./env.sh; rm -rf $S/x", "S=/tmp/a # x\nrm -rf $S/x",
                   "while true; do S=/tmp/a; done; rm -rf $S/x",
+                  "echo a\\; S=/tmp/a; rm -rf $S/etc", "echo \"'\" 'x; S=/tmp/a; y'; rm -rf $S/etc",
+                  "S=/tmp/a; printf -vS /etc; rm -rf $S", "N=S; S=/tmp/a; printf -v $N /etc; rm -rf $S/x",
+                  "S=/tmp/a; mapfile S <<< /etc; rm -rf $S",
                   "A=/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; echo $A $A $A; rm -rf $B/x; B=/tmp/b"]:
             self.assertEqual(decision(c), "ask", c)
 

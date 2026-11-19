@@ -118,7 +118,7 @@ def rm_outside_tmp(seg):
 
 ASSIGN = re.compile(r"""(?:^|[;&|\n]\s*)(?:export\s+)?([A-Za-z_]\w*)=(?:"([^"$`\\]*)"|'([^']*)'|([^\s;&|"'$`\\]+))(?=\s*(?:&&|;|\n|$))""")
 COMPOUND = re.compile(r"\b(?:if|then|else|elif|fi|while|until|for|do|done|case|esac|select|function|readonly|trap|IFS)\b")
-UNSAFE_AROUND = re.compile(r"\|\||\||&|[(){}`]|\b(?:eval|source|read|declare|typeset|local|unset|export|exec)\b")
+UNSAFE_AROUND = re.compile(r"\|\||\||&|[(){}`]|\b(?:eval|source|read|declare|typeset|local|unset|export|exec|printf|mapfile|readarray|getopts|let)\b")
 
 
 def _stable(command, m, use_at):
@@ -128,7 +128,7 @@ def _stable(command, m, use_at):
     text = before + " " + between
     if COMPOUND.search(text) or "<<" in text or "#" in text or re.search(r"(?:^|[;&\n]\s*)\.\s", text):
         return False  # if / loops / heredocs / comments / dot-source: the assignment may not run, or may run again changed
-    if before.count("'") % 2 or before.count('"') % 2:  # the assignment is text inside a string
+    if re.search(r"""['"\\]""", before) or "\\" in between:  # quotes or escapes before the assignment: it may be text inside a string (\; or mixed quotes)
         return False
     if UNSAFE_AROUND.search(before.replace("&&", " ")) or UNSAFE_AROUND.search(between.replace("&&", " ")):
         return False
