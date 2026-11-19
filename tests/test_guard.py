@@ -158,6 +158,24 @@ class Asks(unittest.TestCase):
                   "rmdir old", "find . -name '*.tmp' -delete", "find src build -type f -delete", "find -delete"]:
             self.assertEqual(decision(c), "ask", c)
 
+    def test_inline_python_with_read_only_git_runs(self):
+        head = "python3 - <<'E'\nimport json,subprocess\n"
+        for call in ["subprocess.check_output(['git','show','HEAD:a.json'])",
+                     "subprocess.check_output(['git','-C','/Users/x/repo','show','HEAD:a.json']).decode()",
+                     "__import__('subprocess').check_output(['git','ls-files','-o','--exclude-standard','public/audio'])",
+                     "subprocess.run(['git', 'diff', '-U0', 'a.ts'], capture_output=True, text=True)"]:
+            self.assertEqual(decision(head + "x=" + call + "\nE"), "allow", call)
+
+    def test_inline_python_with_other_subprocess_use_still_asks(self):
+        head = "python3 - <<'E'\nimport json,subprocess\n"
+        for call in ["subprocess.run(['rm','-rf','x'])", "subprocess.run(['git','push'])", "subprocess.run(['git','commit','-m','x'])",
+                     "subprocess.run(['git','diff','--output=x'])", "subprocess.run(['git','show',v])", "subprocess.run(['git','show','x'],shell=True)",
+                     "subprocess.run('git show x', shell=True)", "subprocess.check_output(['git','show','x']); os.system('ls')",
+                     "subprocess.run(['git','-c','core.pager=sh','show','x'])", "subprocess.run(['git','status'] + extra)"]:
+            self.assertEqual(decision(head + "x=" + call + "\nE"), "ask", call)
+        self.assertEqual(decision("python3 - <<'E'\nfrom subprocess import run\nrun(['rm','x'])\nE"), "ask")
+        self.assertEqual(decision("python3 - <<'E'\nimport subprocess as sp\nsp.run(['rm','x'])\nE"), "ask")
+
     def test_tea_writes(self):
         for c in ["tea pulls create --title x", "tea issues close 3", "tea comment 4 hi", "tea pulls list && tea pulls merge 2"]:
             self.assertEqual(decision(c), "ask", c)
@@ -207,6 +225,14 @@ class Allows(unittest.TestCase):
         for c in ["rm /tmp/x", "rm -rf /private/tmp/claude-502/scratch/out", "rm -rf $TMPDIR/build", "rm ${TMPDIR}/a /tmp/b",
                   "rmdir /tmp/x", "find /tmp/x -name '*.o' -delete", "find . -name '*.cs'"]:
             self.assertEqual(decision(c), "allow", c)
+
+    def test_rm_through_a_variable_assigned_in_the_same_command(self):
+        for c in ["S=/private/tmp/claude-501/x/scratchpad && rm -rf $S/wt", "S=/tmp/a; rm -rf ${S}/wt",
+                  "cd repo && S=\"/tmp/a\" && rm -rf $S/wt 2>/dev/null; mkdir -p $S/wt"]:
+            self.assertEqual(decision(c), "allow", c)
+        for c in ["S=/tmp; rm -rf $S", "S=/tmp/a; rm -rf $S/../x", "S=/Users/x; rm -rf $S/wt", "S=$HOME/x; rm -rf $S/wt",
+                  "rm -rf $S/wt; S=/tmp/a", "S=/tmp/a; T=/etc; rm -rf $T/wt"]:
+            self.assertEqual(decision(c), "ask", c)
 
     def test_local_commit_runs_and_push_still_asks(self):
         self.assertEqual(decision("git commit -m x"), "allow")
@@ -271,7 +297,6 @@ class KnownGaps(unittest.TestCase):
     def test_script_file_that_runs_commands(self):
         self.assertNotEqual(decision("sh ./deploy.sh"), "allow")  # the guard never reads the file: only the sandbox sees it
 
-    @unittest.expectedFailure
     def test_command_built_from_a_variable(self):
         self.assertNotEqual(decision("c='git pu'; $c'sh'"), "allow")
 

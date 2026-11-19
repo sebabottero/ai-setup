@@ -93,7 +93,7 @@ def starts_command(words, i):
 
 def rm_outside_tmp(seg):
     """(True, first target outside tmp or None) for an rm / rmdir / find -delete segment; (False, None) otherwise."""
-    words = seg.split()
+    words = NO_OUTPUT.sub(" ", seg).split()  # rm -rf x 2>/dev/null: the redirection is not a target
     cmd = os.path.basename(words[0]) if words else ""
     if cmd in ("rm", "rmdir"):
         targets = [w for w in words[1:] if not w.startswith("-")]
@@ -114,6 +114,38 @@ def rm_outside_tmp(seg):
         if not inside or ".." in target.split("/"):
             return True, target
     return True, None
+
+
+ASSIGN = re.compile(r"""(?:^|[;&|\n]\s*)(?:export\s+)?([A-Za-z_]\w*)=(?:"([^"$`\\]*)"|'([^']*)'|([^\s;&|"'$`\\]+))""")
+
+
+def expand_assigned(command):
+    """Replace $VAR / ${VAR} with the literal value assigned earlier in the same command (S=/tmp/x; rm -rf $S/a), so the
+    rm check judges the real path. Only plain literals and only uses after the assignment; anything else stays as written."""
+    for m in ASSIGN.finditer(command):
+        value = next(g for g in m.groups()[1:] if g is not None)
+        head, tail = command[:m.end()], command[m.end():]
+        command = head + re.sub(r"\$\{%s\}|\$%s\b" % (m.group(1), m.group(1)), lambda _: value, tail)
+    return command
+
+
+_Q = r"""['"]"""
+_ARG = _Q + r"""(?!--output|--ext-diff|--textconv)[^'"$\\\n]*""" + _Q
+_MOD = r"(?:subprocess|__import__\(" + _Q + r"subprocess" + _Q + r"\))"
+READ_ONLY_GIT_CALL = re.compile(
+    _MOD + r"\s*\.\s*(?:check_output|run|check_call|call)\(\s*\[\s*" + _Q + r"git" + _Q
+    + r"(?:\s*,\s*" + _Q + r"-C" + _Q + r"\s*,\s*" + _Q + r"[^'\"$\\\n]*" + _Q + r")?"
+    + r"\s*,\s*" + _Q + r"(?:show|ls-files|diff|log|status)" + _Q + r"(?:\s*,\s*" + _ARG + r")*\s*,?\s*\]"
+    + r"(?:\s*,\s*(?:text|check|cwd|capture_output|encoding|stderr)\s*=\s*[\w.'\"/-]+)*\s*\)")
+PLAIN_IMPORT = re.compile(r"(?m)^[ \t]*import[ \t]+(?![^\n]*\bas\b)[\w., \t]+$")
+
+
+def strip_read_only_git(command):
+    """The command without inline-python calls that only run read-only git (list form, literal args, no shell) and without
+    plain `import ...` lines, so RUNS_COMMANDS judges what is left. `from subprocess import x`, `as` aliases, shell=True,
+    other programs or other git subcommands stay in the text and still ask."""
+    stripped, n = READ_ONLY_GIT_CALL.subn("", command)
+    return PLAIN_IMPORT.sub("", stripped) if n else command  # a bare `import subprocess` alone still asks
 
 
 def tea_read_only(seg):
@@ -460,7 +492,7 @@ def bash(command, policy, cwd=None, depth=0):
                 found.append(result)
     if PIPE_TO_SHELL.search(command):
         found.append(("ask", "a pipe into a shell runs text nobody read: confirm", "pipe-to-shell"))
-    if INLINE_CODE.search(command) and RUNS_COMMANDS.search(command):
+    if INLINE_CODE.search(command) and RUNS_COMMANDS.search(strip_read_only_git(command)):
         found.append(("ask", "inline code that starts other commands hides what runs: confirm", "inline-code"))
     if re.search(r"\bgit\b.*\s-c\s+alias\.", command):
         found.append(("ask", "an inline git alias hides the real command: confirm", "git-alias"))
@@ -469,7 +501,7 @@ def bash(command, policy, cwd=None, depth=0):
         found.append(("ask", f"'{written}' is a review report: only sub-review writes those, confirm", "review-report-write"))
     gated = merge_gate(command, policy, cwd) if re.search(r"\b(?:merge|pull)\b", command) else []  # only merges and pulls: a bug here touches no other command
     found += gated
-    for seg in segments(command):
+    for seg in segments(expand_assigned(command)):
         is_rm, outside = rm_outside_tmp(seg)
         if outside:
             found.append(("ask", f"'rm {outside}' deletes outside tmp: confirm", "rm-outside-tmp"))
