@@ -121,10 +121,20 @@ COMPOUND = re.compile(r"\b(?:if|then|else|elif|fi|while|until|for|do|done|case|e
 UNSAFE_AROUND = re.compile(r"\|\||\||&|[(){}`]|\b(?:eval|source|read|declare|typeset|local|unset|export|exec|printf|mapfile|readarray|getopts|let)\b")
 
 
+SPECIAL_VARS = {"PWD", "OLDPWD", "_", "IFS", "RANDOM", "SECONDS", "LINENO"}  # the shell rewrites these by itself
+SAFE_BETWEEN = re.compile(r"(?:[\w./~:@%+=,\- \t;\n]|&&)*")  # plain words and connectors only: no quotes, escapes, $, redirects
+
+
 def _stable(command, m, use_at):
     """True when the assignment m is certain to have run, unchanged, when the text at use_at runs."""
     before = NO_OUTPUT.sub("", command[:m.start(1)])
     between = NO_OUTPUT.sub("", command[m.end():use_at])
+    name = m.group(1)
+    if name in SPECIAL_VARS or command[use_at - 1:use_at] == "'":
+        return False  # rewritten by the shell itself / inside single quotes the $ is literal text
+    own = re.sub(r"\$\{%s\}|\$%s\b" % (re.escape(name), re.escape(name)), "x", between)  # other uses of the same variable are plain words
+    if not SAFE_BETWEEN.fullmatch(own):
+        return False  # anything else between the assignment and the use (quotes, $X, p""rintf, eval) may rebind the name
     text = before + " " + between
     if COMPOUND.search(text) or "<<" in text or "#" in text or re.search(r"(?:^|[;&\n]\s*)\.\s", text):
         return False  # if / loops / heredocs / comments / dot-source: the assignment may not run, or may run again changed

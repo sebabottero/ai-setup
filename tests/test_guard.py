@@ -251,6 +251,11 @@ class Allows(unittest.TestCase):
                   "echo a\\; S=/tmp/a; rm -rf $S/etc", "echo \"'\" 'x; S=/tmp/a; y'; rm -rf $S/etc",
                   "S=/tmp/a; printf -vS /etc; rm -rf $S", "N=S; S=/tmp/a; printf -v $N /etc; rm -rf $S/x",
                   "S=/tmp/a; mapfile S <<< /etc; rm -rf $S",
+                  'N=S; S=/tmp/a; p""rintf -v $N /etc; rm -rf $S', 'N=S; S=/tmp/a; re""ad $N <<< /etc; rm -rf $S',
+                  'N=S; S=/tmp/a; mapf""ile $N <<< /etc; rm -rf $S', 'N=S; S=/tmp/a; getop""ts a $N; rm -rf $S',
+                  "N=S; S=/tmp/a; ev\"\"al $X; rm -rf $S", "E=ev; F=al; X=S=/etc; S=/tmp/a; $E$F $X; rm -rf $S",
+                  "PWD=/tmp/a; cd /etc; rm -rf $PWD", "OLDPWD=/tmp/a; cd /etc; cd -; rm -rf $OLDPWD", "_=/tmp/a; true /etc; rm -rf $_",
+                  "S=/tmp/a; rm -rf '$S'",
                   "A=/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; echo $A $A $A; rm -rf $B/x; B=/tmp/b"]:
             self.assertEqual(decision(c), "ask", c)
 
