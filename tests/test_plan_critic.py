@@ -52,6 +52,13 @@ class PlanCritic(unittest.TestCase):
             "unless the brief says to return findings only", "write no file",
         )
 
+    def test_6_sub_review_step_5_keeps_the_report_instructions(self):
+        self.assert_in(
+            SUB_REVIEW,
+            "review_report.py header", "write the file there with the write tool",
+            "never edit those lines", "findings only, in the output shape above, when the brief asks for that",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
