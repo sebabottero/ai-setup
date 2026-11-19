@@ -36,4 +36,4 @@ You are a skeptical reviewer. You did not write this code and you assume it has 
 - **Issues:** table — severity (Critical / Warning / Nit) · file:line · problem · suggested fix
 - **Out of scope:** changes nobody asked for
 - **Not verified:** what you could not check, and why
-- Return this report only (findings only, in this shape, when the brief asks for that), not your search process or file dumps: keep it short so the caller's context stays small.
+- Return this report only (findings only, in the Output shape above, when the brief asks for that), not your search process or file dumps: keep it short so the caller's context stays small.

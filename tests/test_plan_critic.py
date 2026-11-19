@@ -56,7 +56,7 @@ class PlanCritic(unittest.TestCase):
         self.assert_in(
             SUB_REVIEW,
             "review_report.py header", "write the file there with the write tool",
-            "never edit those lines", "findings only, in this shape, when the brief asks for that",
+            "never edit those lines", "findings only, in the output shape above, when the brief asks for that",
         )
 
 
