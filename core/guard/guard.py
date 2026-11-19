@@ -116,12 +116,13 @@ def rm_outside_tmp(seg):
     return True, None
 
 
-ASSIGN = re.compile(r"""(?:^|[;&|\n]\s*)(?:export\s+)?([A-Za-z_]\w*)=(?:"([^"$`\\]*)"|'([^']*)'|([^\s;&|"'$`\\]+))(?=\s*(?:&&|;|\n|$))""")
+ASSIGN = re.compile(r"""(?:^|[;&|\n]\s*)(?:export\s+)?([A-Za-z_]\w*)=(?:"(%s)"|'(%s)'|(%s))(?=\s*(?:&&|;|\n|$))""" % (r"[\w./~:@%+=, -]+", r"[\w./~:@%+=, -]+", r"[\w./~:@%+=,-]+"))  # plain words only: ; & | newline or redirects in the value would split the pasted text into extra commands
 COMPOUND = re.compile(r"\b(?:if|then|else|elif|fi|while|until|for|do|done|case|esac|select|function|readonly|trap|IFS)\b")
 UNSAFE_AROUND = re.compile(r"\|\||\||&|[(){}`]|\b(?:eval|source|read|declare|typeset|local|unset|export|exec|printf|mapfile|readarray|getopts|let)\b")
 
 
-SPECIAL_VARS = {"PWD", "OLDPWD", "_", "IFS", "RANDOM", "SECONDS", "LINENO"}  # the shell rewrites these by itself
+SPECIAL_VARS = {"PWD", "OLDPWD", "_", "IFS", "RANDOM", "SRANDOM", "SECONDS", "LINENO", "DIRSTACK", "FUNCNAME", "GROUPS", "HISTCMD",
+                "UID", "EUID", "PPID", "EPOCHSECONDS", "EPOCHREALTIME"}  # the shell rewrites or locks these; BASH* is handled in _stable
 SAFE_BETWEEN = re.compile(r"(?:[\w./~:@%+=,\- \t;\n]|&&)*")  # plain words and connectors only: no quotes, escapes, $, redirects
 
 
@@ -130,7 +131,7 @@ def _stable(command, m, use_at):
     before = NO_OUTPUT.sub("", command[:m.start(1)])
     between = NO_OUTPUT.sub("", command[m.end():use_at])
     name = m.group(1)
-    if name in SPECIAL_VARS or command[use_at - 1:use_at] == "'":
+    if name in SPECIAL_VARS or name.startswith("BASH") or command[use_at - 1:use_at] == "'":
         return False  # rewritten by the shell itself / inside single quotes the $ is literal text
     own = re.sub(r"\$\{%s\}|\$%s\b" % (re.escape(name), re.escape(name)), "x", between)  # other uses of the same variable are plain words
     if not SAFE_BETWEEN.fullmatch(own):

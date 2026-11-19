@@ -256,6 +256,10 @@ class Allows(unittest.TestCase):
                   "N=S; S=/tmp/a; ev\"\"al $X; rm -rf $S", "E=ev; F=al; X=S=/etc; S=/tmp/a; $E$F $X; rm -rf $S",
                   "PWD=/tmp/a; cd /etc; rm -rf $PWD", "OLDPWD=/tmp/a; cd /etc; cd -; rm -rf $OLDPWD", "_=/tmp/a; true /etc; rm -rf $_",
                   "S=/tmp/a; rm -rf '$S'",
+                  'S="/tmp/a; /Users/x/precious"; rm -rf $S', "S='/tmp/a; etc'; rm -rf $S", 'S="/tmp/a && /Users/x/p"; rm -rf $S',
+                  'S="/tmp/a | /Users/x/p"; rm -rf $S', 'S="/tmp/a\n/Users/x/p"; rm -rf $S', 'S="/tmp/a; /Users/x/p"; find $S -delete',
+                  "DIRSTACK=/tmp/a; cd /etc; rm -rf $DIRSTACK", "BASH_COMMAND=/tmp/a; rm -rf $BASH_COMMAND",
+                  "BASHPID=/tmp/a; rm -rf $BASHPID", "UID=/tmp/a; rm -rf $UID", "EPOCHSECONDS=/tmp/a; rm -rf $EPOCHSECONDS",
                   "A=/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; echo $A $A $A; rm -rf $B/x; B=/tmp/b"]:
             self.assertEqual(decision(c), "ask", c)
 
