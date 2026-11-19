@@ -9,7 +9,7 @@ A regex over shell text is a seatbelt, not a wall: obfuscated commands (base64, 
 script) get through. The OS sandbox (Claude: core/policy.json "sandbox") is the wall; this adds the asks the
 sandbox cannot express, like "commit needs my OK".
 """
-import datetime, fnmatch, json, os, re, shlex, subprocess, sys
+import datetime, fnmatch, json, os, re, shlex, stat, subprocess, sys, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 POLICY = os.path.join(ROOT, "build", "policy.json")  # composed by install.py from the installed layers
@@ -108,12 +108,15 @@ def rm_outside_tmp(seg):
         targets = paths or ["."]
     else:
         return False, None
-    prefixes = TMP_PREFIXES + ((os.environ["TMPDIR"].rstrip("/") + "/",) if os.environ.get("TMPDIR") else ())
     for target in targets:
-        inside = any(target.startswith(p) and len(target) > len(p) for p in prefixes)
-        if not inside or ".." in target.split("/"):
+        if not _inside_tmp(target):
             return True, target
     return True, None
+
+
+def _inside_tmp(target):
+    prefixes = TMP_PREFIXES + ((os.environ["TMPDIR"].rstrip("/") + "/",) if os.environ.get("TMPDIR") else ())
+    return any(target.startswith(p) and len(target) > len(p) for p in prefixes) and ".." not in target.split("/")
 
 
 ASSIGN = re.compile(r"""(?:^|[;&|\n]\s*)(?:export\s+)?([A-Za-z_]\w*)=(?:"([^"$`\\]*)"|'([^']*)'|([^\s;&|"'$`\\]+))(?=\s*(?:&&|;|\n|$))""")
@@ -506,7 +509,166 @@ def gate_gh_merge(directory, args, policy, no_review):
     return [result] if result else []
 
 
-def bash(command, policy, cwd=None, depth=0):
+# --- rm of what this session created -------------------------------------------------------------------------------
+# An agent that cleans up its own scratch work should not ask. The OS records when each file was born, so "created by this
+# session" is a fact the guard can check without having seen the command that made it (scripts, python, npx...).
+REGENERABLE = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".vite", ".turbo", ".parcel-cache", ".eslintcache",
+               ".next", ".DS_Store"}  # rebuilt by the tools on the next run: safe to delete even if they are older
+MAX_OWNED_ENTRIES = 20000
+TRANSCRIPT_ROOT = os.path.expanduser("~/.claude/")  # the only place a transcript path is believed
+
+
+def sessions_dir():
+    return os.environ.get("AI_SETUP_SESSIONS_DIR") or os.path.expanduser("~/.ai-setup/sessions")
+
+
+def _birth(st):
+    return getattr(st, "st_birthtime", None)  # macOS: no birth time elsewhere, so nothing is ever judged as created here
+
+
+def session_start(event):
+    """Epoch seconds when this session began: the birth of its transcript (Claude), else the time of its first guard call,
+    kept in a small file per session id (OpenCode). None when unknown: then nothing counts as created by the session."""
+    transcript = event.get("transcript") or ""
+    if transcript and os.path.realpath(transcript).startswith(os.path.realpath(TRANSCRIPT_ROOT) + "/"):
+        try:
+            born = _birth(os.stat(transcript))
+            if born:
+                return born
+        except OSError:
+            pass
+    session = event.get("session")
+    if not session:
+        return None
+    path = os.path.join(sessions_dir(), re.sub(r"[^\w.-]", "_", str(session))[:80])
+    try:
+        with open(path) as f:
+            return float(f.read().strip())
+    except (OSError, ValueError):
+        pass
+    now = time.time()
+    try:
+        os.makedirs(sessions_dir(), exist_ok=True)
+        with open(path, "x") as f:  # "x": two hooks racing keep the first time
+            f.write(repr(now))
+        for old in os.listdir(sessions_dir()):  # forget sessions older than 30 days
+            full = os.path.join(sessions_dir(), old)
+            if time.time() - os.path.getmtime(full) > 30 * 86400:
+                os.remove(full)
+        return now
+    except FileExistsError:
+        try:
+            with open(path) as f:
+                return float(f.read().strip())
+        except (OSError, ValueError):
+            return None
+    except OSError:
+        return None
+
+
+def owned_zones(policy):
+    """Folders where the agent may clean up what it created: dev_root (never the whole home) plus `owned_zones` in a layer."""
+    zones = list(policy.get("owned_zones", [])) + [layers.dev_root(policy)]
+    return [os.path.realpath(os.path.expanduser(z)) for z in zones if z.strip() not in ("", "~")]
+
+
+def _born_after(path, start):
+    """The path, and everything inside it if it is a folder, was born after `start` (and is not too big to check)."""
+    try:
+        born = _birth(os.lstat(path))
+        if born is None or born < start:
+            return False
+        if stat.S_ISDIR(os.lstat(path).st_mode):
+            count = 0
+            for dirpath, dirs, files in os.walk(path, followlinks=False):
+                for name in dirs + files:
+                    if name.lower() == ".git":  # a repo inside: its history is not scratch
+                        return False
+                    count += 1
+                    born = _birth(os.lstat(os.path.join(dirpath, name)))
+                    if count > MAX_OWNED_ENTRIES or born is None or born < start:
+                        return False
+        return True
+    except OSError:
+        return False
+
+
+def _tracked(path):
+    """True when git tracks the path (or a file under it), or when that cannot be told: only "not a git repository" is a no."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}  # a GIT_DIR must not decide for the user's repo
+    try:
+        result = subprocess.run(["git", "-C", os.path.dirname(path), "ls-files", "--", os.path.basename(path)],
+                                capture_output=True, text=True, timeout=5, env=env)
+    except (OSError, subprocess.TimeoutExpired):
+        return True
+    if result.returncode != 0:
+        return "not a git repository" not in result.stderr
+    return bool(result.stdout.strip())
+
+
+def session_owned(target, cwd, policy, start):
+    """True when `rm target` only removes something this session created (or a cache the tools rebuild): inside an owned
+    zone, no glob / variable / .., not .git, not the folder the command runs in, born after the session began, all of
+    its contents too, and not tracked by git."""
+    if cwd is None or re.search(r"[*?\[\]{}$`\\]", target) or ".." in target.split("/"):
+        return False
+    full = os.path.normpath(os.path.join(cwd, os.path.expanduser(target)))
+    final = os.path.join(os.path.realpath(os.path.dirname(full)), os.path.basename(full))
+    if not any(final.startswith(zone + "/") for zone in owned_zones(policy)) or ".git" in final.lower().split("/"):
+        return False
+    if target.endswith("/") and os.path.islink(final):  # `rm -rf link/` removes what the link points at
+        return False
+    here = os.path.realpath(cwd)
+    if here == final or here.startswith(final + "/") or not os.path.lexists(final):
+        return False
+    name = os.path.basename(final)
+    if name in REGENERABLE or (name.endswith(".pyc") and os.path.isfile(final) and not os.path.islink(final)):
+        return not _tracked(final)
+    return start is not None and _born_after(final, start) and not _tracked(final)
+
+
+def owned_rm(seg, cwd, policy, start):
+    """An `rm` / `rmdir` whose every target is in tmp or was created by this session."""
+    words = NO_OUTPUT.sub(" ", seg).split()
+    if not words or os.path.basename(words[0]) not in ("rm", "rmdir"):
+        return False
+    targets = [w for w in words[1:] if not w.startswith("-")]
+    return bool(targets) and all(_inside_tmp(t) or session_owned(t, cwd, policy, start) for t in targets)
+
+
+def segments_in(command, cwd):
+    """(simple command, folder it runs in): follows `cd` so a relative path is judged from the right place. A cd that
+    cannot be followed (variable, `cd -`, a folder that does not exist, subshell, pushd) leaves the folder unknown.
+    A cd that may not run (after `&&`, `||` or `|`) is only believed by the commands chained to it with `&&`; in a
+    pipeline it runs in a subshell and changes nothing."""
+    cur = os.path.normpath(cwd or os.getcwd())
+    pieces = re.split(r"(&&|\|\||[;|\n])", command)
+    prev, maybe = ";", False  # connector before this part; the folder came from a cd that may not have run
+    for i in range(0, len(pieces), 2):
+        part, after = pieces[i], (pieces[i + 1] if i + 1 < len(pieces) else ";")
+        if maybe and prev != "&&":
+            cur, maybe = None, False
+        words = words_of(part)
+        if words[:1] in (["pushd"], ["popd"]):
+            cur = None
+        elif words[:1] == ["cd"]:
+            target = os.path.expanduser(words[1]) if len(words) > 1 else os.path.expanduser("~")
+            nxt = None if cur is None or "$" in target or target == "-" or re.search(r"[(){}`]", part) \
+                else os.path.normpath(os.path.join(cur, target))
+            nxt = nxt if nxt and os.path.isdir(nxt) else None
+            if prev == "||":
+                cur = None  # it ran only if the command before failed: unknown
+            elif prev == "|" or after == "|":
+                pass  # a pipeline cd runs in a subshell: this shell stays where it was
+            else:
+                cur, maybe = nxt, maybe or prev == "&&"
+        for seg in segments(part):
+            yield seg, cur
+        prev = after
+    return
+
+
+def bash(command, policy, cwd=None, depth=0, start=None):
     """(decision, reason, rule): rule names what decided (a policy pattern or a check), never the command."""
     hit = secret(command, policy) or secret_after_cd(command, policy, cwd)
     if hit and hit[0] == "deny":
@@ -519,7 +681,7 @@ def bash(command, policy, cwd=None, depth=0):
     found = []  # every ask the command earns; the riskiest one is shown, so 'git commit && git reset --hard' reads as high
     if depth < MAX_DEPTH:  # bash -c 'cd repo && git push': judge the inner command as if it was typed alone
         for m in INNER.finditer(command):
-            result = bash(m.group(2) if m.group(1) else m.group(4), policy, cwd, depth + 1)
+            result = bash(m.group(2) if m.group(1) else m.group(4), policy, cwd, depth + 1, start)
             if result[0] != "allow":
                 found.append(result)
     if PIPE_TO_SHELL.search(command):
@@ -533,8 +695,10 @@ def bash(command, policy, cwd=None, depth=0):
         found.append(("ask", f"'{written}' is a review report: only sub-review writes those, confirm", "review-report-write"))
     gated = merge_gate(command, policy, cwd) if re.search(r"\b(?:merge|pull)\b", command) else []  # only merges and pulls: a bug here touches no other command
     found += gated
-    for seg in segments(expand_assigned(command)):
+    for seg, here in segments_in(expand_assigned(command), cwd):
         is_rm, outside = rm_outside_tmp(seg)
+        if outside and owned_rm(seg, here, policy, start):
+            continue  # it deletes what this session created: nothing to confirm
         if outside:
             found.append(("ask", f"'rm {outside}' deletes outside tmp: confirm", "rm-outside-tmp"))
             continue
@@ -620,7 +784,7 @@ def unsandboxed(command, policy, cwd, decision, reason, rule):
 def judge(event, policy):
     if event.get("tool") == "bash":
         command, cwd = event.get("command", ""), event.get("cwd")
-        decision, reason, rule = bash(command, policy, cwd)
+        decision, reason, rule = bash(command, policy, cwd, start=session_start(event))
         if event.get("unsandboxed") and decision != "deny":
             return unsandboxed(command, policy, cwd, decision, reason, rule)
         return decision, reason, rule
