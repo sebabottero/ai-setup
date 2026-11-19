@@ -164,7 +164,8 @@ class Asks(unittest.TestCase):
                      "subprocess.run(['git','diff','--output=x'])", "subprocess.run(['git','show',v])", "subprocess.run(['git','show','x'],shell=True)",
                      "subprocess.run('git show x', shell=True)", "subprocess.check_output(['git','show','x']); os.system('ls')",
                      "subprocess.run(['git','-c','core.pager=sh','show','x'])", "subprocess.run(['git','status'] + extra)",
-                     "subprocess.run(['git','show','--ext-diff','x'])", "subprocess.run(['git','diff','--textconv','x'])",
+                     "subprocess.run(['git','show','--ext-diff','x'])", "subprocess.run(['git','diff','--ext-d','x'])", "subprocess.run(['git','diff','--textc','x'])",
+                     "subprocess.run(['git','diff','--out=x'])", "subprocess.run(['git','diff','--textconv','x'])",
                      "subprocess.Popen(['git','show','x'])", "subprocess.run(['git','show','x'], env=e)",
                      "subprocess.run(['git','show','x'], executable='/bin/sh')", "subprocess.run(['git','show',\"x',\"+str(os.system(chr(105)+chr(100)))+'])',])",
                      "mysubprocess.run(['git','show','x'])", "x.subprocess.run(['git','show','x'])",
@@ -243,6 +244,10 @@ class Allows(unittest.TestCase):
                   "S=/tmp/a; read S; rm -rf $S/x", "S=/tmp/a; eval 'S=/etc'; rm -rf $S/x", "S=/tmp/a; declare S=/etc; rm -rf $S/x",
                   "false && S=/tmp/a; rm -rf $S/x", "true | S=/tmp/a; rm -rf $S/x", "S=/tmp/a rm -rf $S/x",
                   "a || S=/tmp/a && rm -rf $S/x", "cd d && S=/tmp/a; rm -rf $S/x",
+                  "if false\nthen\nS=/tmp/a\nfi\nrm -rf $S/etc", "cat <<'E'\nS=/tmp/a\nE\nrm -rf $S/etc",
+                  "echo 'x;S=/tmp/a;'; rm -rf $S/etc", "S=/tmp/a; for i in 1 2; do rm -rf $S/x; S=/etc; done",
+                  "readonly S=/etc; S=/tmp/a; rm -rf $S/x", "S=/tmp/a; . ./env.sh; rm -rf $S/x", "S=/tmp/a # x\nrm -rf $S/x",
+                  "while true; do S=/tmp/a; done; rm -rf $S/x",
                   "A=/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; echo $A $A $A; rm -rf $B/x; B=/tmp/b"]:
             self.assertEqual(decision(c), "ask", c)
 

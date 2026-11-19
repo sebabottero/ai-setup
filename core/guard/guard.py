@@ -117,6 +117,7 @@ def rm_outside_tmp(seg):
 
 
 ASSIGN = re.compile(r"""(?:^|[;&|\n]\s*)(?:export\s+)?([A-Za-z_]\w*)=(?:"([^"$`\\]*)"|'([^']*)'|([^\s;&|"'$`\\]+))(?=\s*(?:&&|;|\n|$))""")
+COMPOUND = re.compile(r"\b(?:if|then|else|elif|fi|while|until|for|do|done|case|esac|select|function|readonly|trap|IFS)\b")
 UNSAFE_AROUND = re.compile(r"\|\||\||&|[(){}`]|\b(?:eval|source|read|declare|typeset|local|unset|export|exec)\b")
 
 
@@ -124,6 +125,11 @@ def _stable(command, m, use_at):
     """True when the assignment m is certain to have run, unchanged, when the text at use_at runs."""
     before = NO_OUTPUT.sub("", command[:m.start(1)])
     between = NO_OUTPUT.sub("", command[m.end():use_at])
+    text = before + " " + between
+    if COMPOUND.search(text) or "<<" in text or "#" in text or re.search(r"(?:^|[;&\n]\s*)\.\s", text):
+        return False  # if / loops / heredocs / comments / dot-source: the assignment may not run, or may run again changed
+    if before.count("'") % 2 or before.count('"') % 2:  # the assignment is text inside a string
+        return False
     if UNSAFE_AROUND.search(before.replace("&&", " ")) or UNSAFE_AROUND.search(between.replace("&&", " ")):
         return False
     if re.search(r"(?<![\w$])%s\b" % re.escape(m.group(1)), between):  # the name is rebound: S=..., unset S, read S, for S
@@ -153,7 +159,7 @@ def expand_assigned(command):
 
 _STR = r"""(?:'{c}'|"{c}")"""  # one whole string: its content holds no quote, so quotes can never be mispaired
 _C = r"""[^'"$\\\n]*"""
-_ARG = _STR.format(c=r"""(?!--output|--ext-diff|--textconv)""" + _C)
+_ARG = _STR.format(c=r"""(?!--o|--ext|--te)""" + _C)  # git accepts abbreviations: --out, --ext-d, --textc
 _MOD = r"(?<![\w.])(?:subprocess|__import__\(" + _STR.format(c="subprocess") + r"\))"
 READ_ONLY_GIT_CALL = re.compile(
     _MOD + r"\s*\.\s*(?:check_output|run|check_call|call)\(\s*\[\s*" + _STR.format(c="git")
