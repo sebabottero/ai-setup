@@ -162,6 +162,7 @@ class Asks(unittest.TestCase):
         head = "python3 - <<'E'\nimport json,subprocess\n"
         for call in ["subprocess.run(['rm','-rf','x'])", "subprocess.run(['git','push'])", "subprocess.run(['git','commit','-m','x'])",
                      "subprocess.run(['git','diff','--output=x'])", "subprocess.run(['git','show',v])", "subprocess.run(['git','show','x'],shell=True)",
+                     "subprocess.run(['git','show','`rm -rf /etc`'])",
                      "subprocess.run('git show x', shell=True)", "subprocess.check_output(['git','show','x']); os.system('ls')",
                      "subprocess.run(['git','-c','core.pager=sh','show','x'])", "subprocess.run(['git','status'] + extra)",
                      "subprocess.run(['git','show','--ext-diff','x'])", "subprocess.run(['git','diff','--ext-d','x'])", "subprocess.run(['git','diff','--textc','x'])",
@@ -171,6 +172,7 @@ class Asks(unittest.TestCase):
                      "mysubprocess.run(['git','show','x'])", "x.subprocess.run(['git','show','x'])",
                      "subprocess.run(['git','show','x']); sp=__import__('sub'+'process'); sp.run(['rm','x'])"]:
             self.assertEqual(decision(head + "x=" + call + "\nE"), "ask", call)
+        self.assertEqual(decision("python3 - <<E\nimport subprocess\n$(rm -rf /etc)\nsubprocess.run(['git','show','x'])\nE"), "ask")
         self.assertEqual(decision("python3 - <<'E'\nfrom subprocess import run\nrun(['rm','x'])\nE"), "ask")
         self.assertEqual(decision("python3 - <<'E'\nimport subprocess as sp\nsp.run(['rm','x'])\nE"), "ask")
 
@@ -251,6 +253,19 @@ class Allows(unittest.TestCase):
                   "echo a\\; S=/tmp/a; rm -rf $S/etc", "echo \"'\" 'x; S=/tmp/a; y'; rm -rf $S/etc",
                   "S=/tmp/a; printf -vS /etc; rm -rf $S", "N=S; S=/tmp/a; printf -v $N /etc; rm -rf $S/x",
                   "S=/tmp/a; mapfile S <<< /etc; rm -rf $S",
+                  'N=S; S=/tmp/a; p""rintf -v $N /etc; rm -rf $S', 'N=S; S=/tmp/a; re""ad $N <<< /etc; rm -rf $S',
+                  'N=S; S=/tmp/a; mapf""ile $N <<< /etc; rm -rf $S', 'N=S; S=/tmp/a; getop""ts a $N; rm -rf $S',
+                  "N=S; S=/tmp/a; ev\"\"al $X; rm -rf $S", "E=ev; F=al; X=S=/etc; S=/tmp/a; $E$F $X; rm -rf $S",
+                  "PWD=/tmp/a; cd /etc; rm -rf $PWD", "OLDPWD=/tmp/a; cd /etc; cd -; rm -rf $OLDPWD", "_=/tmp/a; true /etc; rm -rf $_",
+                  "S=/tmp/a; rm -rf '$S'",
+                  'S="/tmp/a; /Users/x/precious"; rm -rf $S', "S='/tmp/a; etc'; rm -rf $S", 'S="/tmp/a && /Users/x/p"; rm -rf $S',
+                  'S="/tmp/a | /Users/x/p"; rm -rf $S', 'S="/tmp/a\n/Users/x/p"; rm -rf $S', 'S="/tmp/a; /Users/x/p"; find $S -delete',
+                  "DIRSTACK=/tmp/a; cd /etc; rm -rf $DIRSTACK", "BASH_COMMAND=/tmp/a; rm -rf $BASH_COMMAND",
+                  "BASHPID=/tmp/a; rm -rf $BASHPID",
+                  "S=/tmp//Users/x; rm -rf $S[6,20]", "S=/tmp/zed; rm -rf $S:s/tmp/Users/", "S=/tmp/a; rm -rf $S:h", "S=/tmp/a; rm -rf $S[1,5]",
+                  "PIPESTATUS=/tmp/a; rm -rf $PIPESTATUS/x", "OPTIND=/tmp/a; rm -rf $OPTIND/x", "SHELLOPTS=/tmp/a; rm -rf $SHELLOPTS/x",
+                  "status=/tmp/a; rm -rf $status/x", "pipestatus=/tmp/a; rm -rf $pipestatus/x", "USERNAME=/tmp/a; rm -rf $USERNAME/x",
+                  "S\u00e9=/tmp/a; rm -rf $S\u00e9/x", "UID=/tmp/a; rm -rf $UID", "EPOCHSECONDS=/tmp/a; rm -rf $EPOCHSECONDS",
                   "A=/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; echo $A $A $A; rm -rf $B/x; B=/tmp/b"]:
             self.assertEqual(decision(c), "ask", c)
 

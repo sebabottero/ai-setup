@@ -119,15 +119,27 @@ def _inside_tmp(target):
     return any(target.startswith(p) and len(target) > len(p) for p in prefixes) and ".." not in target.split("/")
 
 
-ASSIGN = re.compile(r"""(?:^|[;&|\n]\s*)(?:export\s+)?([A-Za-z_]\w*)=(?:"([^"$`\\]*)"|'([^']*)'|([^\s;&|"'$`\\]+))(?=\s*(?:&&|;|\n|$))""")
+ASSIGN = re.compile(r"""(?:^|[;&|\n]\s*)(?:export\s+)?([A-Za-z_]\w*)=(?:"(%s)"|'(%s)'|(%s))(?=\s*(?:&&|;|\n|$))""" % (r"[\w./~:@%+=, -]+", r"[\w./~:@%+=, -]+", r"[\w./~:@%+=,-]+"))  # plain words only: ; & | newline or redirects in the value would split the pasted text into extra commands
 COMPOUND = re.compile(r"\b(?:if|then|else|elif|fi|while|until|for|do|done|case|esac|select|function|readonly|trap|IFS)\b")
 UNSAFE_AROUND = re.compile(r"\|\||\||&|[(){}`]|\b(?:eval|source|read|declare|typeset|local|unset|export|exec|printf|mapfile|readarray|getopts|let)\b")
+
+
+SPECIAL_VARS = {"PWD", "OLDPWD", "_", "IFS", "RANDOM", "SRANDOM", "SECONDS", "LINENO", "DIRSTACK", "FUNCNAME", "GROUPS", "HISTCMD",
+                "UID", "EUID", "PPID", "EPOCHSECONDS", "EPOCHREALTIME", "PIPESTATUS", "OPTIND", "OPTARG", "OPTERR", "SHELLOPTS", "STATUS",
+                "USERNAME", "ERRNO", "ARGV", "ARGC", "GID", "EGID", "TTYIDLE", "COLUMNS", "LINES", "HISTCMD"}  # compared in upper case (zsh: status, pipestatus)  # the shell rewrites or locks these; BASH* is handled in _stable
+SAFE_BETWEEN = re.compile(r"(?:[\w./~:@%+=,\- \t;\n]|&&)*")  # plain words and connectors only: no quotes, escapes, $, redirects
 
 
 def _stable(command, m, use_at):
     """True when the assignment m is certain to have run, unchanged, when the text at use_at runs."""
     before = NO_OUTPUT.sub("", command[:m.start(1)])
     between = NO_OUTPUT.sub("", command[m.end():use_at])
+    name = m.group(1)
+    if name.upper() in SPECIAL_VARS or name.upper().startswith("BASH") or command[use_at - 1:use_at] == "'":
+        return False  # rewritten by the shell itself / inside single quotes the $ is literal text
+    own = re.sub(r"\$\{%s\}|\$%s\b" % (re.escape(name), re.escape(name)), "x", between)  # other uses of the same variable are plain words
+    if not SAFE_BETWEEN.fullmatch(own):
+        return False  # anything else between the assignment and the use (quotes, $X, p""rintf, eval) may rebind the name
     text = before + " " + between
     if COMPOUND.search(text) or "<<" in text or "#" in text or re.search(r"(?:^|[;&\n]\s*)\.\s", text):
         return False  # if / loops / heredocs / comments / dot-source: the assignment may not run, or may run again changed
@@ -147,12 +159,14 @@ def expand_assigned(command):
     check judges the real path. Only when the assignment surely ran, unchanged, before the use; otherwise $VAR stays
     as written and the rm asks."""
     assigns = list(ASSIGN.finditer(command))
-    if not assigns:
+    if not assigns or not command.isascii():  # non-ASCII names: shells disagree on where a name ends, so never resolve
         return command
     names = "|".join(sorted({re.escape(m.group(1)) for m in assigns}, key=len, reverse=True))
     out, last = [], 0
     for use in re.finditer(r"\$\{(%s)\}|\$(%s)\b" % (names, names), command):
         name = use.group(1) or use.group(2)
+        if use.group(2) and not re.match(r"""(?:$|[\s/;&".'])""", command[use.end():use.end() + 1]):
+            continue  # zsh: $S[6,20], $S:h, $S:s/a/b/ change the value after the text was pasted
         prior = [m for m in assigns if m.group(1) == name and m.end() <= use.start()]
         if prior and _stable(command, prior[-1], use.start()):
             out += [command[last:use.start()], next(g for g in prior[-1].groups()[1:] if g is not None)]
@@ -161,7 +175,7 @@ def expand_assigned(command):
 
 
 _STR = r"""(?:'{c}'|"{c}")"""  # one whole string: its content holds no quote, so quotes can never be mispaired
-_C = r"""[^'"$\\\n]*"""
+_C = r"""[^'"$`\\\n]*"""
 _ARG = _STR.format(c=r"""(?!--o|--ext|--te)""" + _C)  # git accepts abbreviations: --out, --ext-d, --textc
 _MOD = r"(?<![\w.])(?:subprocess|__import__\(" + _STR.format(c="subprocess") + r"\))"
 READ_ONLY_GIT_CALL = re.compile(
@@ -177,6 +191,8 @@ def strip_read_only_git(command):
     """The command without inline-python calls that only run read-only git (list form, literal args, no shell) and without
     plain `import ...` lines, so RUNS_COMMANDS judges what is left. `from subprocess import x`, `as` aliases, shell=True,
     other programs, other git subcommands and dynamic imports stay in the text and still ask."""
+    if re.search(r"<<-?[ \t]*[\\\w]", command):
+        return command  # unquoted heredoc delimiter: the shell still expands $(...) and backticks in the body
     stripped, n = READ_ONLY_GIT_CALL.subn("", command)
     if not n or DYNAMIC_PYTHON.search(stripped):  # a bare `import subprocess` alone still asks
         return command

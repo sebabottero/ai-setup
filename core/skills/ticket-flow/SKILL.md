@@ -8,7 +8,7 @@ description: Run a whole ticket end to end - understand, plan, build, test, docs
 ## Map
 ```
 0 Contract ► Understand ──► 1 Plan ──► ⛔ GATE 1 ──► 2 Build (one writer, one worktree) ──► 3 Validate ‖ Review ──► ⛔ GATE 2
-   ‖ Explore x N                         bug: sub-tester first                       leaf-verify ‖ sub-review
+   ‖ Explore x N            + critic     bug: sub-tester first                       leaf-verify ‖ sub-review
 ```
 After the PR: `4 Post-PR re-review` (`sub-review` on the commit vs `criteria.md`), then the comment OK at Gate 2.
 `‖` = in parallel, in the same turn. Small tasks skip stages: say which ones and why.
@@ -62,7 +62,13 @@ Write `<dev root>/handoffs/<ticket>/plan.md` (never in the repo):
 - **out of scope**;
 - the writer's steps, in order, and which files each touches;
 - for a feature, the seams to test (`tdd` skill): public interface and what each one covers;
-- risks and open questions.
+- risks and open questions;
+- a **criteria map**: each criterion → the step(s) and test that cover it; a step with no criterion is extra scope: drop it, or list it under "extras" in the Gate 1 summary.
+
+**Plan critic.** Full route only. Before Gate 1, one `sub-review` (read-only, one round) attacks `plan.md` with a fixed question: what breaks, what is missing, what is extra?
+Its input is `plan.md`, `criteria.md` and the 0a contract (there is no diff yet); it returns its findings as its message and skips the report step (step 5), so nothing is written at the review report path the merge gate reads. Save the text yourself to `<dev root>/handoffs/<ticket>/plan-critic.md` if you want to keep it.
+Fix what it finds yourself, but only inside the 0a contract and `criteria.md`; a fix that would change either is unresolved.
+Gate 1 mentions the critic only for unresolved findings.
 
 **Split signal.** One strong signal (mixed topics such as refactor + behaviour change, or >400 lines estimated) or two weak ones (several modules or layers, independently testable criteria): propose a split into several PRs. Below ~150 estimated lines it is always a single PR, with no discussion.
 **With slices.** If `criteria.md` has `## Slices`, the user names slice K in the run's args (default: the first slice not yet merged); its build covers only slice K's criteria: the 0a contract and its allowlist (K is chosen first, at 0a), the plan, the writer's allowlist and the review.
