@@ -170,18 +170,20 @@ def _inside_tmp(target):
 
 ASSIGN = re.compile(r"""(?:^|[;&|\n]\s*)(?:export\s+)?([A-Za-z_]\w*)=(?:"(%s)"|'(%s)'|(%s))(?=\s*(?:&&|;|\n|$))""" % (r"[\w./~:@%+=, -]+", r"[\w./~:@%+=, -]+", r"[\w./~:@%+=,-]+"))  # plain words only: ; & | newline or redirects in the value would split the pasted text into extra commands
 COMPOUND = re.compile(r"\b(?:if|then|else|elif|fi|while|until|for|do|done|case|esac|select|function|readonly|trap|IFS)\b")
-UNSAFE_AROUND = re.compile(r"\|\||\||&|[(){}`]|\b(?:eval|source|read|declare|typeset|local|unset|export|exec|printf|mapfile|readarray|getopts|let)\b")
+UNSAFE_AROUND = re.compile(r"\|\||\||&|[(){}`]|\b(?:eval|source|read|declare|typeset|local|integer|float|private|unset|export|exec|printf|mapfile|readarray|getopts|let)\b")
 
 
 SPECIAL_VARS = {"PWD", "OLDPWD", "_", "IFS", "RANDOM", "SRANDOM", "SECONDS", "LINENO", "DIRSTACK", "FUNCNAME", "GROUPS", "HISTCMD",
+                "KEYBOARD_HACK", "HISTCHARS", "HISTSIZE", "SAVEHIST", "MAILCHECK", "SHLVL", "LISTMAX", "ZSH_SUBSHELL",
+                "PS1", "PROMPT", "PS2", "PROMPT2", "RPS1", "RPROMPT",
                 "UID", "EUID", "PPID", "EPOCHSECONDS", "EPOCHREALTIME", "PIPESTATUS", "OPTIND", "OPTARG", "OPTERR", "SHELLOPTS", "STATUS",
-                "USERNAME", "ERRNO", "ARGV", "ARGC", "GID", "EGID", "TTYIDLE", "COLUMNS", "LINES", "HISTCMD"}  # compared in upper case (zsh: status, pipestatus)  # the shell rewrites or locks these; BASH* is handled in _stable
+                "USERNAME", "ERRNO", "ARGV", "ARGC", "GID", "EGID", "TTYIDLE", "COLUMNS", "LINES"}  # compared in upper case (zsh: status, pipestatus)  # the shell rewrites or locks these; BASH* is handled in _stable
 SAFE_BETWEEN = re.compile(r"(?:[\w./~:@%+=,\- \t;\n]|&&)*")  # plain words and connectors only: no quotes, escapes, $, redirects
 
 
 def _stable(command, m, use_at):
     """True when the assignment m is certain to have run, unchanged, when the text at use_at runs."""
-    before = NO_OUTPUT.sub("", command[:m.start(1)])
+    before = re.sub(r"\bexport\s+$", "", NO_OUTPUT.sub("", command[:m.start(1)]))  # the `export ` of this very assignment is not an unsafe word
     between = NO_OUTPUT.sub("", command[m.end():use_at])
     name = m.group(1)
     if name.upper() in SPECIAL_VARS or name.upper().startswith("BASH") or command[use_at - 1:use_at] == "'":
@@ -196,7 +198,7 @@ def _stable(command, m, use_at):
         return False
     if UNSAFE_AROUND.search(before.replace("&&", " ")) or UNSAFE_AROUND.search(between.replace("&&", " ")):
         return False
-    if re.search(r"(?<![\w$])%s\b" % re.escape(m.group(1)), between):  # the name is rebound: S=..., unset S, read S, for S
+    if re.search(r"(?<![\w$])%s\b" % re.escape(m.group(1)), between, re.I):  # the name is rebound: S=..., unset S, read S, for S (any case: cdpath/CDPATH, manpath/MANPATH are tied in zsh)
         return False
     if "&&" in before:  # the assignment may be skipped (false && S=/tmp/a): only a chain of && up to the use is safe
         return not re.search(r"[;\n]", between)
@@ -240,8 +242,8 @@ def strip_read_only_git(command):
     """The command without inline-python calls that only run read-only git (list form, literal args, no shell) and without
     plain `import ...` lines, so RUNS_COMMANDS judges what is left. `from subprocess import x`, `as` aliases, shell=True,
     other programs, other git subcommands and dynamic imports stay in the text and still ask."""
-    if re.search(r"<<-?[ \t]*[\\\w]", command):
-        return command  # unquoted heredoc delimiter: the shell still expands $(...) and backticks in the body
+    if "<<<" in command or re.search(r"""<<(?!-?[ \t]*(?:['"]|\\[^\n]))""", command):
+        return command  # here-string or a heredoc delimiter that is not quoted ('E', "E", \E; a backslash before a newline is a line continuation, so unquoted): the shell still expands $(...) and backticks in the body
     stripped, n = READ_ONLY_GIT_CALL.subn("", command)
     if not n or DYNAMIC_PYTHON.search(stripped):  # a bare `import subprocess` alone still asks
         return command

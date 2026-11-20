@@ -269,6 +269,57 @@ class Allows(unittest.TestCase):
                   "A=/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; echo $A $A $A; rm -rf $B/x; B=/tmp/b"]:
             self.assertEqual(decision(c), "ask", c)
 
+    def test_rm_through_a_zsh_special_name_asks(self):
+        # each name was run in zsh 5.9: the assignment is truncated, refused (integer / read-only) or tied to a twin name
+        for n in ["KEYBOARD_HACK", "HISTCHARS", "HISTSIZE", "SAVEHIST", "MAILCHECK", "SHLVL", "LISTMAX", "ZSH_SUBSHELL",
+                  "PS1", "PROMPT", "PS2", "PROMPT2", "RPS1", "RPROMPT"]:
+            self.assertEqual(decision("%s=/tmp/a; rm -rf $%s/x" % (n, n)), "ask", n)
+        self.assertEqual(decision("KEYBOARD_HACK=/tmp/a; rm -rf $KEYBOARD_HACK"), "ask")
+        self.assertEqual(decision("PS1=/tmp/a; PROMPT=/etc; rm -rf $PS1/x"), "ask")
+
+    def test_rm_through_a_case_tied_name_asks(self):
+        for c in ["CDPATH=/tmp/a; cdpath=/etc; rm -rf $CDPATH/x", "MANPATH=/tmp/a; manpath=/etc; rm -rf $MANPATH/x",
+                  "cdpath=/tmp/a; CDPATH=/etc; rm -rf $cdpath/x", "ManPath=/tmp/a; mANpATH=/etc; rm -rf $ManPath/x",
+                  "S=/tmp/x; ls /tmp/s; rm -rf $S/a"]:  # the last one is a false positive on purpose: a lower-case twin may be tied
+            self.assertEqual(decision(c), "ask", c)
+
+    def test_rm_through_a_variable_rebound_by_integer_float_private(self):
+        for c in ["integer -r S=/etc; S=/tmp/x; rm -rf $S/a", "float -r S=/etc; S=/tmp/x; rm -rf $S/a",
+                  "private -r S=/etc; S=/tmp/x; rm -rf $S/a", "S=/tmp/x; integer S=5; rm -rf $S/a",
+                  "S=/tmp/x; float S=5; rm -rf $S/a", "S=/tmp/x; private S=/etc; rm -rf $S/a"]:
+            self.assertEqual(decision(c), "ask", c)
+
+    def test_rm_through_an_exported_variable(self):
+        for c in ["export S=/tmp/x; rm -rf $S/a", "cd repo && export S=/tmp/x && rm -rf $S/a", "export S=/tmp/x; rm -rf ${S}/a"]:
+            self.assertEqual(decision(c), "allow", c)
+        for c in ["export S=/etc; rm -rf $S/a", "export S=/tmp/x; export S=/etc; rm -rf $S/a", "S=/tmp/x; export S=/etc; rm -rf $S/a",
+                  "export A=1; export S=/tmp/x; rm -rf $S/a", "export S=/tmp/x; export -n S; S=/etc; rm -rf $S/a"]:
+            self.assertEqual(decision(c), "ask", c)
+
+    def test_heredoc_strip_only_with_a_quoted_delimiter(self):
+        call = "import subprocess\nsubprocess.check_output(['git','show','x'])\n"
+        for d in ["%E", ".E", "$E", "E", "E'X'", "<<E", "-E", "-%E", "-.E"]:  # the last ones: here-string, <<- forms
+            c = "python3 - <<" + d + "\n" + call + d.lstrip("<-") + "\n"
+            self.assertEqual(guard.strip_read_only_git(c), c, d)
+            self.assertEqual(decision(c), "ask", d)
+        self.assertEqual(guard.strip_read_only_git("python3 - <<< \"" + call + "\""), "python3 - <<< \"" + call + "\"")
+        mixed = "python3 - <<'E'\n" + call + "E\npython3 - <<F\nx\nF\n"  # one quoted + one unquoted
+        self.assertEqual(guard.strip_read_only_git(mixed), mixed)
+        for d in ["'E'", '"E"', "\\E", "-'E'", "'E'", "- 'E'", " 'E'", " \\E"]:
+            c = "python3 - <<" + d + "\n" + call + "E\n"
+            self.assertNotEqual(guard.strip_read_only_git(c), c, d)
+            self.assertEqual(decision(c), "allow", d)
+
+    def test_heredoc_backslash_newline_is_not_a_quoted_delimiter(self):
+        # <<\<NL>E is a line continuation = the unquoted <<E: the body is still expanded (bash 3.2 and zsh 5.9 print PWNED)
+        body = "import subprocess\nsubprocess.check_output(['git','show','x'])\n$(printf PWNED)\n"
+        for d in ["\\\n", "- \\\n", " \\\n", "-\\\n"]:
+            c = "python3 - <<" + d + "E\n" + body + "E\n"
+            self.assertEqual(guard.strip_read_only_git(c), c, repr(d))
+            self.assertEqual(decision(c), "ask", repr(d))
+        for c in ["python3 - <<\\", "python3 - << \\"]:  # bare backslash at the end of the text
+            self.assertEqual(guard.strip_read_only_git(c), c, c)
+
     def test_local_commit_runs_and_push_still_asks(self):
         self.assertEqual(decision("git commit -m x"), "allow")
         self.assertEqual(decision("git commit -m x && git push"), "ask")
