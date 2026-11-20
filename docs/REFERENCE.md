@@ -29,8 +29,8 @@ Missing: which environment fails? (default: local)
 - **macOS first.** Linux works for the guard, the installer and the tests (CI runs Ubuntu); `bootstrap.py` lists the brew packages
   for your own package manager instead of installing them. No Windows.
 - **A seatbelt, not a wall.** The guard now judges what is inside `bash -c`, `eval`, `curl ... | sh` and inline `python -c`
-  that starts commands, and follows `cd` before a relative secret name. Inline code that only reads the setup's rules (`json.load(open('core/policy.json'))`) does not ask; code that writes them (`open(..., 'w')`, `write_text`, `os.remove`, `writeFileSync`) does. It still cannot read a script file (`sh deploy.sh`),
-  a variable-built command or base64: those stay as `expectedFailure` in `tests/test_guard.py`. The OS sandbox is the wall (Claude only).
+  that starts commands, and follows `cd` before a relative secret name. Inline code that only reads the setup's rules (`json.load(open('core/policy.json'))`) does not ask; code that writes them (`open(..., 'w')`, `write_text`, `os.remove`, `writeFileSync`) does. Inline Python that only calls `subprocess` for read-only git (`show`, `ls-files`, `diff`, `log`, `status`, list form, literal args) does not ask either. It still cannot read a script file (`sh deploy.sh`),
+  a command built from a variable that is not a plain literal, or base64: those stay as `expectedFailure` in `tests/test_guard.py`. The OS sandbox is the wall (Claude only).
 - **OpenCode** uses a beta plugin API; our side is tested with a fake context, not the real OpenCode. **Codex** gets instructions and skills only.
 - **No telemetry.** The guard keeps a local log (`~/.ai-setup/guard.log`: time, decision, rule; never the command). `AI_SETUP_GUARD_LOG=off` disables it.
 - **Action log for the receipt.** `$DEV/logs/actions.log` (`AI_SETUP_ACTIONS_LOG`, `off` disables) lists, per session, what ran

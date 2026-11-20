@@ -31,7 +31,9 @@
   sandbox, commits, installs, and every ask), HIGH first, then MEDIUM, then LOW: risk · ran/asked · command. Or "none".
   Outside the sandbox, work without asking only while it writes inside `{{DEV}}`, the scratchpad or tmp.
   Scratch dirs: use a fixed path under `$TMPDIR` or the scratchpad and never `rm` it: `P=$(mktemp -d)` + `rm -rf "$P"`
-  triggers an `rm-outside-tmp` ask because the guard cannot resolve the variable.
+  triggers an `rm-outside-tmp` ask because the guard cannot resolve a command substitution.
+  A literal assigned in the same command (`S=/tmp/x; rm -rf $S/a`, a plain literal) is resolved and passes, as long as it is
+  assigned before the rm and not reassigned, unset or conditional (`false && S=...`).
   Add the changes of medium or high risk (tests, hooks, policy, install scripts), each with one line on its impact.
   Then add **Efficiency** (3-5 lines, only if something concrete could have gone better in this session, else "nothing to adjust"):
   what in my prompt or in the model / effort choice caused rework, and how to ask it next time. Never generic tips.
