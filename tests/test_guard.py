@@ -162,6 +162,7 @@ class Asks(unittest.TestCase):
         head = "python3 - <<'E'\nimport json,subprocess\n"
         for call in ["subprocess.run(['rm','-rf','x'])", "subprocess.run(['git','push'])", "subprocess.run(['git','commit','-m','x'])",
                      "subprocess.run(['git','diff','--output=x'])", "subprocess.run(['git','show',v])", "subprocess.run(['git','show','x'],shell=True)",
+                     "subprocess.run(['git','show','`rm -rf /etc`'])",
                      "subprocess.run('git show x', shell=True)", "subprocess.check_output(['git','show','x']); os.system('ls')",
                      "subprocess.run(['git','-c','core.pager=sh','show','x'])", "subprocess.run(['git','status'] + extra)",
                      "subprocess.run(['git','show','--ext-diff','x'])", "subprocess.run(['git','diff','--ext-d','x'])", "subprocess.run(['git','diff','--textc','x'])",
@@ -259,7 +260,10 @@ class Allows(unittest.TestCase):
                   'S="/tmp/a; /Users/x/precious"; rm -rf $S', "S='/tmp/a; etc'; rm -rf $S", 'S="/tmp/a && /Users/x/p"; rm -rf $S',
                   'S="/tmp/a | /Users/x/p"; rm -rf $S', 'S="/tmp/a\n/Users/x/p"; rm -rf $S', 'S="/tmp/a; /Users/x/p"; find $S -delete',
                   "DIRSTACK=/tmp/a; cd /etc; rm -rf $DIRSTACK", "BASH_COMMAND=/tmp/a; rm -rf $BASH_COMMAND",
-                  "BASHPID=/tmp/a; rm -rf $BASHPID", "UID=/tmp/a; rm -rf $UID", "EPOCHSECONDS=/tmp/a; rm -rf $EPOCHSECONDS",
+                  "BASHPID=/tmp/a; rm -rf $BASHPID",
+                  "PIPESTATUS=/tmp/a; rm -rf $PIPESTATUS/x", "OPTIND=/tmp/a; rm -rf $OPTIND/x", "SHELLOPTS=/tmp/a; rm -rf $SHELLOPTS/x",
+                  "status=/tmp/a; rm -rf $status/x", "pipestatus=/tmp/a; rm -rf $pipestatus/x", "USERNAME=/tmp/a; rm -rf $USERNAME/x",
+                  "S\u00e9=/tmp/a; rm -rf $S\u00e9/x", "UID=/tmp/a; rm -rf $UID", "EPOCHSECONDS=/tmp/a; rm -rf $EPOCHSECONDS",
                   "A=/tmp/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; echo $A $A $A; rm -rf $B/x; B=/tmp/b"]:
             self.assertEqual(decision(c), "ask", c)
 

@@ -122,7 +122,8 @@ UNSAFE_AROUND = re.compile(r"\|\||\||&|[(){}`]|\b(?:eval|source|read|declare|typ
 
 
 SPECIAL_VARS = {"PWD", "OLDPWD", "_", "IFS", "RANDOM", "SRANDOM", "SECONDS", "LINENO", "DIRSTACK", "FUNCNAME", "GROUPS", "HISTCMD",
-                "UID", "EUID", "PPID", "EPOCHSECONDS", "EPOCHREALTIME"}  # the shell rewrites or locks these; BASH* is handled in _stable
+                "UID", "EUID", "PPID", "EPOCHSECONDS", "EPOCHREALTIME", "PIPESTATUS", "OPTIND", "OPTARG", "OPTERR", "SHELLOPTS", "STATUS",
+                "USERNAME", "ERRNO", "ARGV", "ARGC", "GID", "EGID", "TTYIDLE", "COLUMNS", "LINES", "HISTCMD"}  # compared in upper case (zsh: status, pipestatus)  # the shell rewrites or locks these; BASH* is handled in _stable
 SAFE_BETWEEN = re.compile(r"(?:[\w./~:@%+=,\- \t;\n]|&&)*")  # plain words and connectors only: no quotes, escapes, $, redirects
 
 
@@ -131,7 +132,7 @@ def _stable(command, m, use_at):
     before = NO_OUTPUT.sub("", command[:m.start(1)])
     between = NO_OUTPUT.sub("", command[m.end():use_at])
     name = m.group(1)
-    if name in SPECIAL_VARS or name.startswith("BASH") or command[use_at - 1:use_at] == "'":
+    if name.upper() in SPECIAL_VARS or name.upper().startswith("BASH") or command[use_at - 1:use_at] == "'":
         return False  # rewritten by the shell itself / inside single quotes the $ is literal text
     own = re.sub(r"\$\{%s\}|\$%s\b" % (re.escape(name), re.escape(name)), "x", between)  # other uses of the same variable are plain words
     if not SAFE_BETWEEN.fullmatch(own):
@@ -155,7 +156,7 @@ def expand_assigned(command):
     check judges the real path. Only when the assignment surely ran, unchanged, before the use; otherwise $VAR stays
     as written and the rm asks."""
     assigns = list(ASSIGN.finditer(command))
-    if not assigns:
+    if not assigns or not command.isascii():  # non-ASCII names: shells disagree on where a name ends, so never resolve
         return command
     names = "|".join(sorted({re.escape(m.group(1)) for m in assigns}, key=len, reverse=True))
     out, last = [], 0
@@ -169,7 +170,7 @@ def expand_assigned(command):
 
 
 _STR = r"""(?:'{c}'|"{c}")"""  # one whole string: its content holds no quote, so quotes can never be mispaired
-_C = r"""[^'"$\\\n]*"""
+_C = r"""[^'"$`\\\n]*"""
 _ARG = _STR.format(c=r"""(?!--o|--ext|--te)""" + _C)  # git accepts abbreviations: --out, --ext-d, --textc
 _MOD = r"(?<![\w.])(?:subprocess|__import__\(" + _STR.format(c="subprocess") + r"\))"
 READ_ONLY_GIT_CALL = re.compile(
