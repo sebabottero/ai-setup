@@ -86,6 +86,24 @@ def words_of(part):
         return re.sub(r"[\"']", " ", part).split()
 
 
+def shell_words(part):
+    """The words of a simple command as the shell sees them: a quoted word stays one word, even with `(` or a backtick
+    in it. Parens and backticks outside quotes are dropped (`(cd x`, `$(rm y`)."""
+    part = re.sub(r"""('[^']*'|"(?:\\.|[^"\\])*")|[`()]""", lambda m: m.group(1) or " ", part)
+    try:
+        return shlex.split(part)
+    except ValueError:  # unbalanced quotes: fall back to a plain split
+        return re.sub(r"[\"']", " ", part).split()
+
+
+class Seg(str):
+    """One simple command as text (what the ask patterns match), with `words`: the real shell words from the command
+    word on, assignments and quotes intact (what `rm` is judged on), and `real`: False for a guess from a split that
+    ignored quotes (it can only add an ask)."""
+    words = None
+    real = True
+
+
 def starts_command(words, i):
     return i == 0 or words[i - 1] in EXEC_FLAGS or all(
         w in WRAPPERS or w.startswith("-") or re.fullmatch(r"\d+[smhd]?", w) for w in words[:i])
@@ -99,9 +117,32 @@ def rm_targets(args):
     return [w for w in args if not w.startswith("-")]
 
 
+def rm_words(seg):
+    """The words of a segment without the redirections that write nowhere (rm -rf x 2>/dev/null: not a target)."""
+    if getattr(seg, "words", None) is None:
+        return NO_OUTPUT.sub(" ", seg).split()
+    words, i = [], 0
+    while i < len(seg.words):
+        w = seg.words[i]
+        if re.fullmatch(r"\d*>&\d+|(?:\d*|&)>>?/dev/(?:null|stderr|stdout)", w):
+            i += 1
+        elif re.fullmatch(r"(?:\d*|&)>>?", w) and i + 1 < len(seg.words) and re.fullmatch(r"/dev/(?:null|stderr|stdout)", seg.words[i + 1]):
+            i += 2
+        else:
+            words.append(w)
+            i += 1
+    return words
+
+
+def xargs_rm(seg):
+    """xargs ... rm: the targets come from input nobody read."""
+    words = rm_words(seg)
+    return bool(words) and os.path.basename(words[0]) == "xargs" and any(os.path.basename(w) in ("rm", "rmdir") for w in words[1:])
+
+
 def rm_outside_tmp(seg):
     """(True, first target outside tmp or None) for an rm / rmdir / find -delete segment; (False, None) otherwise."""
-    words = NO_OUTPUT.sub(" ", seg).split()  # rm -rf x 2>/dev/null: the redirection is not a target
+    words = rm_words(seg)
     cmd = os.path.basename(words[0]) if words else ""
     if cmd in ("rm", "rmdir"):
         targets = rm_targets(words[1:])
@@ -213,22 +254,69 @@ def tea_read_only(seg):
                                      [[v] for v in TEA_READ_ONLY])
 
 
+CONNECTOR = re.compile(r"&&|\|\||\|&|(?<![<>&|])&(?![>&])|[;|\n]")  # a lone & too, but not >&, &>, 2>&1
+
+
+def _part_segments(part):
+    orig = shell_words(part)
+    kept = [(k, w) for k, w in enumerate(orig) if not re.match(r"^\w+=", w)]  # env assignments are not the command
+    words = [w for _, w in kept]
+    # the real command is the first word, or follows wrappers: sudo git push, xargs git push, bash -c "git push"
+    # (a "git push" that is only an argument, like echo "git push", is text and does not count)
+    for i in range(len(words)):
+        if not starts_command(words, i):
+            continue
+        seg = Seg(" ".join(words[i:]))
+        seg.words = orig[kept[i][0]:]  # an assignment after the command (`rm x=y`) is an argument
+        yield seg
+        if re.search(r"\s", words[i]):  # env -S 'rm x', sudo -s 'rm x': the word is a whole command line the wrapper splits
+            try:
+                inner = shlex.split(words[i]) + orig[kept[i][0] + 1:]
+            except ValueError:
+                inner = words[i].split() + orig[kept[i][0] + 1:]
+            again = Seg(" ".join(inner))
+            again.words = inner
+            yield again
+        if words[i] == "git":  # git --no-pager -C dir -c k=v push → git push
+            j = i + 1
+            while j < len(words) and words[j].startswith("-"):
+                j += 2 if words[j] in GIT_OPTS_WITH_VALUE else 1
+            if j > i + 1:
+                yield Seg(" ".join(["git"] + words[j:]))
+
+
 def segments(command):
-    # one entry per simple command: split on ; && || | newlines, drop subshell parens and env assignments
-    for part in re.split(r"&&|\|\||[;|\n]", command):
-        words = [w for w in words_of(part) if not re.match(r"^\w+=", w)]
-        # the real command is the first word, or follows wrappers: sudo git push, xargs git push, bash -c "git push"
-        # (a "git push" that is only an argument, like echo "git push", is text and does not count)
-        for i in range(len(words)):
-            if not starts_command(words, i):
+    # one entry per simple command: split on ; && || | & newlines, drop subshell parens and env assignments
+    for part in re.split(CONNECTOR, command):
+        yield from _part_segments(part)
+
+
+def split_commands(command):
+    """[(simple command text, connector after it)]: like segments() it splits on ; && || | & newline, but never inside
+    quotes, so `rm "a;b"` stays one command."""
+    parts, start, i, quote = [], 0, 0, None
+    while i < len(command):
+        c = command[i]
+        if quote:
+            if c == "\\" and quote == '"':
+                i += 2
                 continue
-            yield " ".join(words[i:])
-            if words[i] == "git":  # git --no-pager -C dir -c k=v push → git push
-                j = i + 1
-                while j < len(words) and words[j].startswith("-"):
-                    j += 2 if words[j] in GIT_OPTS_WITH_VALUE else 1
-                if j > i + 1:
-                    yield " ".join(["git"] + words[j:])
+            quote = None if c == quote else quote
+            i += 1
+            continue
+        if c == "\\":
+            i += 2
+        elif c in "'\"":
+            quote, i = c, i + 1
+        else:
+            m = CONNECTOR.match(command, i)
+            if m:
+                parts.append((command[start:i], "|" if m.group() == "|&" else m.group()))
+                i = start = m.end()
+            else:
+                i += 1
+    parts.append((command[start:], ";"))
+    return parts
 
 
 def normalize(command):
@@ -733,54 +821,86 @@ def scratch_owned(target, cwd, policy):
 
 def owned_rm(seg, cwd, policy, start):
     """An `rm` / `rmdir` whose every target is in tmp, was created by this session or is inside a scratch zone."""
-    words = NO_OUTPUT.sub(" ", seg).split()
+    words = rm_words(seg)
     if not words or os.path.basename(words[0]) not in ("rm", "rmdir"):
         return False
-    if any(w == "--parents" or (w.startswith("-") and not w.startswith("--") and "p" in w) for w in words[1:]) and os.path.basename(words[0]) == "rmdir":
+    if os.path.basename(words[0]) == "rmdir" and any(_parents_option(w) for w in (words[1:words.index("--")] if "--" in words else words[1:])):
         return False  # rmdir -p also removes the parents, which this session may not have created
     targets = rm_targets(words[1:])
     return bool(targets) and all(_inside_tmp(t) or session_owned(t, cwd, policy, start) or scratch_owned(t, cwd, policy) for t in targets)
 
 
-CD_WORD = re.compile(r"(?<![\w./-])(?:cd|pushd|popd)(?![\w./-])")
+def _parents_option(word):
+    """-p, a bundle with p (-pv), or --parents (GNU takes any prefix: --parent, --par)."""
+    if word.startswith("--"):
+        return len(word) > 2 and "--parents".startswith(word)
+    return word.startswith("-") and "p" in word
+
+
+CD_WORD = re.compile(r"(?<![\w./-])(?:cd|chdir|pushd|popd)(?![\w./-])")
+
+
+def _cd_target(words, cur, part):
+    """The folder `cd [-L|-P] [--] <one path>` goes to, or None when that is not certain: any other shape (extra words,
+    other options, bare `cd`), a variable, `cd -`, a `..` component (the shell resolves it through links), or a folder
+    that does not exist."""
+    args = words[1:]
+    if args[:1] in (["-L"], ["-P"]):
+        args = args[1:]
+    if args[:1] == ["--"]:
+        args = args[1:]
+    if cur is None or len(args) != 1 or re.search(r"[(){}`]", part):
+        return None
+    target = os.path.expanduser(args[0])
+    if "$" in target or target.startswith("-") or ".." in target.split("/"):
+        return None
+    nxt = os.path.normpath(os.path.join(cur, target))
+    return nxt if os.path.isdir(nxt) and os.access(nxt, os.X_OK) else None
 
 
 def segments_in(command, cwd):
     """(simple command, folder it runs in): follows `cd` so a relative path is judged from the right place. A cd that
-    cannot be followed (variable, `cd -`, a folder that does not exist, subshell, pushd) leaves the folder unknown.
-    A cd that may not run (after `&&`, `||` or `|`) is only believed by the commands chained to it with `&&`; in a
-    pipeline it runs in a subshell and changes nothing."""
+    cannot be followed (see _cd_target, subshell, pushd, chdir) leaves the folder unknown, and so does a lone `&` (what follows
+    may run beside a cd that went to the background). A cd that may not run (after `&&`, `||` or `|`) is only believed
+    by the commands chained to it with `&&`; in a pipeline it runs in a subshell and changes nothing, except the last
+    element, which zsh runs in this shell (unknown).
+    Commands are split with quotes in mind: that is what `rm` is judged on. The plain split that ignores quotes is also
+    run and its extra guesses come last, marked `real = False`: they can only add an ask."""
     cur = os.path.normpath(cwd or os.getcwd())
-    # The split below does not understand quotes, comments, heredocs, braces or keywords: with any of them and a `cd`
-    # in the text, a cd it reads may not run (or one that runs may be unseen), so no folder is believed.
+    # The split below does not understand comments, heredocs, braces or keywords: with any of them (or a quote or a
+    # backslash) and a `cd` in the text, a cd it reads may not run (or one that runs may be unseen), so no folder is believed.
     unclean = re.search(r"""['"#{}\\]|<<""", command) or COMPOUND.search(command)
     blind = bool(unclean and CD_WORD.search(command))
-    pieces = re.split(r"(&&|\|\||[;|\n])", command)
     prev, maybe = ";", False  # connector before this part; the folder came from a cd that may not have run
-    for i in range(0, len(pieces), 2):
-        part, after = pieces[i], (pieces[i + 1] if i + 1 < len(pieces) else ";")
+    seen = set()
+    for part, after in split_commands(command):
         if maybe and prev != "&&":
             cur, maybe = None, False
         words = words_of(part)
         if blind or (CD_WORD.search(part) and words[:1] != ["cd"]):  # `builtin cd`, `FOO=1 cd`, `time cd`...: not followed
             cur = None
-        elif words[:1] in (["pushd"], ["popd"]):
+        elif words[:1] in (["pushd"], ["popd"], ["chdir"]):  # bash has no chdir: it may not move at all
             cur = None
         elif words[:1] == ["cd"]:
-            target = os.path.expanduser(words[1]) if len(words) > 1 else os.path.expanduser("~")
-            nxt = None if cur is None or "$" in target or target == "-" or re.search(r"[(){}`]", part) \
-                else os.path.normpath(os.path.join(cur, target))
-            nxt = nxt if nxt and os.path.isdir(nxt) and os.access(nxt, os.X_OK) else None
+            nxt = _cd_target(words, cur, part)
             if prev == "||":
                 cur = None  # it ran only if the command before failed: unknown
-            elif prev == "|" or after == "|":
+            elif after == "|":
                 pass  # a pipeline cd runs in a subshell: this shell stays where it was
+            elif prev == "|":
+                cur = None  # the last element of a pipeline runs in this shell in zsh
             else:
                 cur, maybe = nxt, maybe or prev == "&&"
-        for seg in segments(part):
+        for seg in _part_segments(part):
+            seen.add((str(seg), tuple(seg.words or ())))
             yield seg, cur
+        if after == "&":
+            cur = None
         prev = after
-    return
+    for seg in segments(command):
+        if (str(seg), tuple(seg.words or ())) not in seen:  # same text, other words: still a different command
+            seg.real = False
+            yield seg, None
 
 
 def bash(command, policy, cwd=None, depth=0, start=None):
@@ -812,7 +932,10 @@ def bash(command, policy, cwd=None, depth=0, start=None):
     found += gated
     for seg, here in segments_in(expand_assigned(command), cwd):
         is_rm, outside = rm_outside_tmp(seg)
-        if outside and owned_rm(seg, here, policy, start):
+        if xargs_rm(seg):
+            found.append(("ask", "'xargs rm' deletes what its input names: confirm", "rm-outside-tmp"))
+            continue
+        if outside and seg.real and owned_rm(seg, here, policy, start):
             continue  # it deletes what this session created: nothing to confirm
         if outside:
             found.append(("ask", f"'rm {outside}' deletes outside tmp: confirm", "rm-outside-tmp"))
