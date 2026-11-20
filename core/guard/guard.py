@@ -277,8 +277,33 @@ def secret_after_cd(command, policy, cwd=None):
     return None
 
 
+# read_only_commands: anything that could write or run what it was not asked to is refused before the list is consulted
+READ_REFUSED = re.compile(r"""[>&`(){}]|\$['"]|<<""")
+READ_OPTS = re.compile(r"""(?<![\w-])--(?:o(?:u(?:t(?:p(?:u(?:t)?)?)?)?)?|pre)(?=[=\s'"]|$)""")  # --output (git takes any prefix), rg --pre
+SED_PRINT = re.compile(r"""sed\s+-n\s+(['"]?)\d+(?:,\d+)?p\1(?:\s+[^\s'"$`\\-][^\s'"$`\\]*)+""")  # sed -n 5,9p file: no -i, no w command
+
+
+def read_only(command, policy):
+    """True when every simple command is on policy read_only_commands (or is `sed -n Np file`) and nothing in the text can
+    write: redirections, background jobs, substitutions, heredocs, a leading VAR=x, --output / --pre. Fail closed: an empty
+    or missing list, or anything unrecognised, is not a read."""
+    patterns = policy.get("read_only_commands", [])
+    plain = NO_OUTPUT.sub(" ", command)
+    pieces = [p for p in (p.strip() for p in re.split(r"&&|\|\||[;|\n]", plain)) if p]
+    if not pieces or not patterns:
+        return False
+    for piece in pieces:
+        if READ_REFUSED.search(piece) or READ_OPTS.search(piece) or "$(" in piece:
+            return False
+        if not (SED_PRINT.fullmatch(piece) or any(fnmatch.fnmatchcase(piece, pat) for pat in patterns)):
+            return False
+    return True
+
+
 def protected(command, policy, cwd=None):
     """A protected path (the setup's own rules) that the command looks like it writes to."""
+    if read_only(command, policy):  # cat / grep / git diff / sed -n Np: the words rm, cp, tee in their text are not writes
+        return None
     plain = NO_OUTPUT.sub("", command)
     inline = INLINE_CODE.search(command) or re.search(r"\b(?:python3?|node|ruby)\s+(?:-\S+\s+)*-[ce]\b", command)
     if inline:  # judge the code by what it calls, and the shell around it by WRITES (its text holds > and the like)
@@ -733,7 +758,8 @@ def bash(command, policy, cwd=None, depth=0, start=None):
             continue
         for pattern in policy["ask_commands"]:
             if fnmatch.fnmatchcase(seg, pattern) or fnmatch.fnmatchcase(seg, pattern.rstrip(" *")):
-                if not (gated and pattern in GATE_RULES):  # the gate already judged this merge
+                # the gate already judged a merge; a push of a branch that push_allow names needs no OK
+                if not (gated and pattern in GATE_RULES) and not (pattern == "git push *" and safe_push(seg, command, policy)):
                     found.append(("ask", f"'{seg}' needs your explicit OK (policy: {pattern})", pattern))
                 break
     for item in found:
@@ -742,6 +768,38 @@ def bash(command, policy, cwd=None, depth=0, start=None):
     if found:
         return max(found, key=lambda r: risk_of(r[0], r[2]) == "high")  # max keeps the first of equals
     return "allow", "", "-"
+
+
+PUSH_TAINT = re.compile(r"""\bgit\s+-|\.git/|(?<![\w-])(?:-c|--config-env|--git-dir|--work-tree|--exec-path|--namespace)(?=[=\s]|$)|\bGIT_\w+=|"""
+                        r"""\bgit\b[^;&|\n]*?\s(?:config|remote)\b""")  # a command line that can change where `origin` points
+BRANCH = re.compile(r"[A-Za-z0-9][\w.-]*(?:/[A-Za-z0-9_-][\w.-]*)*")
+
+
+def _push_branch(ref, branches):
+    name = ref[len("refs/heads/"):] if ref.startswith("refs/heads/") else ref
+    return name if (BRANCH.fullmatch(name) and ".." not in name and not name.endswith((".", ".lock"))
+                    and any(fnmatch.fnmatchcase(name, b) for b in branches)) else None
+
+
+def safe_push(seg, command, policy):
+    """True for `git push [-u] <remote> <branch>` where remote and branch are both named by policy push_allow (a layer key)
+    and the branch is spelled out (ai/x, ai/x:ai/x, HEAD:ai/x, refs/heads/ai/x). No other flag, no deletion, no tag, no
+    + (force), no bare HEAD, no refspec list, and no git option or config command in the line that could move the destination."""
+    allow = policy.get("push_allow") or {}
+    remotes, branches = allow.get("remotes"), allow.get("branches")
+    words = NO_OUTPUT.sub(" ", seg).split()
+    # quotes and backslashes are dropped first: git '-C' x, git \-C x and g'i't -C are the same line to the shell
+    if not remotes or not branches or words[:2] != ["git", "push"] or PUSH_TAINT.search(re.sub(r"""["'\\]""", "", command)):
+        return False
+    flags = [w for w in words[2:] if w.startswith("-")]
+    args = [w for w in words[2:] if not w.startswith("-")]
+    if any(f not in ("-u", "--set-upstream") for f in flags) or len(args) != 2 or args[0] not in remotes:
+        return False
+    if ":" not in args[1]:  # `ai/x` pushes the branch of that name
+        return _push_branch(args[1], branches) is not None
+    src, _, dst = args[1].partition(":")
+    target = _push_branch(dst, branches)
+    return target is not None and (src == "HEAD" or _push_branch(src, branches) == target)
 
 
 def write_targets(seg):
