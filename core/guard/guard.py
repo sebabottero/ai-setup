@@ -18,9 +18,11 @@ import layers, review_report
 GLOB = re.compile(r"[*?\[]")
 # git options that come before the subcommand; the first group takes a separate value
 GIT_OPTS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env", "--super-prefix"}
-# a write to a protected path: redirection, in-place edits, file moves, or code run inline
-WRITES = re.compile(r"(?<![-=])>(?!=)|\bsed\b[^|;&]*\s-i|\btee\b|\bmv\b|\bcp\b|\brm\b|\btruncate\b|\bchmod\b|\bln\b|\bperl\b|"
-                    r"\bgit\s+(checkout|restore|apply|stash)\b")
+# --output (git takes any prefix), rg --pre, or an option name spelled with an escape or a variable (--o\utput, --$O) that hides which one it is
+READ_OPTS = re.compile(r"""(?<![\w-])--(?:(?:o(?:u(?:t(?:p(?:u(?:t)?)?)?)?)?|pre)(?=[=\s'"]|$)|[\w-]*[\\$])""")
+# a write to a protected path: redirection, in-place edits, file moves, those options, a sed w command, or code run inline
+WRITES = re.compile(r"(?<![-=])>(?!=)|\bsed\b[^|;&]*\s-i|\bsed\b[^|&]*[\d$/}'\";{ \\]w[ \t]*[^\s'\"]|\btee\b|\bmv\b|\bcp\b|\brm\b|\btruncate\b|\bchmod\b|\bln\b|\bperl\b|"
+                    r"\bgit\s+(checkout|restore|apply|stash)\b|" + READ_OPTS.pattern)
 # inline code (python -c, node -e, a heredoc) only counts as a write when the code looks like it writes: reading the
 # setup's own rules with json.load(open('core/policy.json')) is not a change
 CODE_WRITES = re.compile(r"""open\([^,)]*,\s*['"][rbt]*[wax+][rwabxt+]*['"]|\bmode\s*=\s*['"][rbt]*[wax+]|\.write(?:_text|_bytes|lines)?\(|"""
@@ -263,12 +265,14 @@ def _part_segments(part):
     orig = shell_words(part)
     kept = [(k, w) for k, w in enumerate(orig) if not re.match(r"^\w+=", w)]  # env assignments are not the command
     words = [w for _, w in kept]
+    # /usr/bin/git, /usr/bin/env: a wrapper or git named by path is judged by its name
+    named = [os.path.basename(w) if "/" in w and os.path.basename(w) in WRAPPERS | {"git", "gh"} else w for w in words]
     # the real command is the first word, or follows wrappers: sudo git push, xargs git push, bash -c "git push"
     # (a "git push" that is only an argument, like echo "git push", is text and does not count)
     for i in range(len(words)):
-        if not starts_command(words, i):
+        if not starts_command(named, i):
             continue
-        seg = Seg(" ".join(words[i:]))
+        seg = Seg(" ".join(named[i:i + 1] + words[i + 1:]))
         seg.words = orig[kept[i][0]:]  # an assignment after the command (`rm x=y`) is an argument
         yield seg
         if re.search(r"\s", words[i]):  # env -S 'rm x', sudo -s 'rm x': the word is a whole command line the wrapper splits
@@ -279,7 +283,7 @@ def _part_segments(part):
             again = Seg(" ".join(inner))
             again.words = inner
             yield again
-        if words[i] == "git":  # git --no-pager -C dir -c k=v push → git push
+        if named[i] == "git":  # git --no-pager -C dir -c k=v push → git push
             j = i + 1
             while j < len(words) and words[j].startswith("-"):
                 j += 2 if words[j] in GIT_OPTS_WITH_VALUE else 1
@@ -377,7 +381,6 @@ def secret_after_cd(command, policy, cwd=None):
 
 # read_only_commands: anything that could write or run what it was not asked to is refused before the list is consulted
 READ_REFUSED = re.compile(r"""[>&`(){}]|\$['"]|<<""")
-READ_OPTS = re.compile(r"""(?<![\w-])--(?:o(?:u(?:t(?:p(?:u(?:t)?)?)?)?)?|pre)(?=[=\s'"]|$)""")  # --output (git takes any prefix), rg --pre
 SED_PRINT = re.compile(r"""sed\s+-n\s+(['"]?)\d+(?:,\d+)?p\1(?:\s+[^\s'"$`\\-][^\s'"$`\\]*)+""")  # sed -n 5,9p file: no -i, no w command
 
 
@@ -899,10 +902,27 @@ def segments_in(command, cwd):
         if after == "&":
             cur = None
         prev = after
-    for seg in segments(command):
+    flat = re.sub(r"\$\(|[<>]\(|`|\)", ";", command)  # $( ), ` `, <( ), >( ): the commands inside are commands of their own
+    for seg in (*segments(command), *(segments(flat) if flat != command else ())):
         if (str(seg), tuple(seg.words or ())) not in seen:  # same text, other words: still a different command
             seg.real = False
             yield seg, None
+
+
+CONFIG_SCOPE = {"--global", "--local", "--system", "--worktree", "--show-origin", "--show-scope", "-z", "--null"}
+
+
+def config_read(seg):
+    """`git config --get* / --list / -l ...`: the read flag is the first option after config (scope flags aside) and no other
+    option follows, so a value cannot turn it into a write (`git config remote.origin.url x --get` writes)."""
+    words = shell_words(seg)
+    if words[:2] != ["git", "config"]:
+        return False
+    rest = words[2:]
+    while rest[:1] and rest[0] in CONFIG_SCOPE:
+        rest = rest[1:]
+    return bool(rest) and (rest[0] in ("--list", "-l") or rest[0].startswith("--get")) and all(
+        w in CONFIG_SCOPE or not w.startswith("-") for w in rest[1:]) and "#" not in rest
 
 
 def bash(command, policy, cwd=None, depth=0, start=None):
@@ -945,7 +965,10 @@ def bash(command, policy, cwd=None, depth=0, start=None):
         if is_rm or tea_read_only(seg):  # rm inside tmp, tea list/view: nothing to confirm
             continue
         for pattern in policy["ask_commands"]:
-            if fnmatch.fnmatchcase(seg, pattern) or fnmatch.fnmatchcase(seg, pattern.rstrip(" *")):
+            if pattern.startswith("git config ") and config_read(seg):
+                continue  # git config --get / --list read; the url patterns are for writes
+            text = seg.lower() if pattern.startswith(("git config ", "git remote ")) else seg  # git section and key names ignore case
+            if fnmatch.fnmatchcase(text, pattern) or fnmatch.fnmatchcase(text, pattern.rstrip(" *")):
                 # the gate already judged a merge; a push of a branch that push_allow names needs no OK
                 if not (gated and pattern in GATE_RULES) and not (pattern == "git push *" and safe_push(seg, command, policy)):
                     found.append(("ask", f"'{seg}' needs your explicit OK (policy: {pattern})", pattern))
@@ -958,7 +981,7 @@ def bash(command, policy, cwd=None, depth=0, start=None):
     return "allow", "", "-"
 
 
-PUSH_TAINT = re.compile(r"""\bgit\s+-|\.git/|(?<![\w-])(?:-c|--config-env|--git-dir|--work-tree|--exec-path|--namespace)(?=[=\s]|$)|\bGIT_\w+=|"""
+PUSH_TAINT = re.compile(r"""\bgit\s+-|\.git/|(?<![\w.-])\.git(?![\w.-])|\bxargs\b|(?<![\w-])(?:-c|--config-env|--git-dir|--work-tree|--exec-path|--namespace)(?=[=\s]|$)|\bGIT_\w+=|"""
                         r"""\bgit\b[^;&|\n]*?\s(?:config|remote)\b""")  # a command line that can change where `origin` points
 BRANCH = re.compile(r"[A-Za-z0-9][\w.-]*(?:/[A-Za-z0-9_-][\w.-]*)*")
 

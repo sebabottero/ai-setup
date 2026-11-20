@@ -386,6 +386,22 @@ class KnownGaps(unittest.TestCase):
     def test_command_built_from_a_variable(self):
         self.assertNotEqual(decision("c='git pu'; $c'sh'"), "allow")
 
+    @unittest.expectedFailure
+    def test_heredoc_body_text_is_judged_by_the_merge_gate(self):
+        c = "gh pr comment 3 --body-file - <<'E'\ngh pr merge 3\nE"  # D8: the body is only text, but the guard reads it as a merge
+        self.assertEqual(guard.bash(c, POLICY, ROOT)[2], "gh pr comment*")
+
+    @unittest.expectedFailure
+    def test_config_edit_in_a_folder_named_by_a_glob(self):
+        policy = dict(POLICY, push_allow={"remotes": ["origin"], "branches": ["ai/*"]})
+        self.assertNotEqual(guard.decide({"tool": "bash", "command": "cd .g* && echo x > config && git push origin ai/x", "cwd": ROOT}, policy)[0], "allow")
+
+    @unittest.expectedFailure
+    def test_config_edit_in_a_folder_named_by_a_substitution(self):
+        policy = dict(POLICY, push_allow={"remotes": ["origin"], "branches": ["ai/*"]})
+        c = "cd $(git rev-parse --git-common-dir) && echo x > config && git push origin ai/x"
+        self.assertNotEqual(guard.decide({"tool": "bash", "command": c, "cwd": ROOT}, policy)[0], "allow")
+
 
 @unittest.skipUnless(hasattr(os.stat_result, "st_birthtime"), "needs file birth times (macOS)")
 class DeletesWhatTheSessionCreated(unittest.TestCase):
@@ -1456,6 +1472,117 @@ class PushToAiBranches(unittest.TestCase):
 
     def test_the_decision_names_the_push_rule(self):
         self.assertEqual(guard.bash("git push origin main", self.policy)[2], "git push *")
+
+
+class PushAndWriteHoles(unittest.TestCase):
+    """Follow-up holes: xargs push, remote / config changes, substitutions, absolute git, --output and sed w, escaped
+    options, heredoc bodies. Dangerous direction first, then what must keep running."""
+    policy = dict(POLICY, push_allow={"remotes": ["origin"], "branches": ["ai/*"]})
+    P = "core/policy.json"  # a protected path (cwd is the repo)
+
+    def judge(self, command, policy=None):
+        return guard.bash(command, policy or self.policy, ROOT)[::2]  # (decision, rule)
+
+    def test_xargs_push_asks(self):
+        for c in ["echo --force | xargs git push origin ai/x", "echo main | xargs git push origin ai/x", "xargs git push origin ai/x",
+                  "/usr/bin/xargs git push origin ai/x"]:
+            self.assertEqual(self.judge(c), ("ask", "git push *"), c)
+        self.assertEqual(self.judge("git push origin ai/x"), ("allow", "-"))
+
+    def test_remote_and_config_changes_ask(self):
+        for c in ["git remote set-url origin https://evil/r.git", "git remote add fork https://evil/r.git",
+                  "git config remote.origin.url https://evil/r.git", "git config remote.origin.pushurl https://evil/r.git",
+                  "git config url.https://evil/.insteadOf git@", "git config --global --add remote.origin.url x",
+                  "git -C d remote set-url origin x", "git -C d config remote.origin.url x", "git -C d config core.url x",
+                  "git --no-pager config remote.origin.url x"]:
+            self.assertEqual(self.judge(c, POLICY)[0], "ask", c)  # push_allow unset: the change itself asks
+
+    def test_reads_of_remote_and_config_stay_allowed(self):
+        for c in ["git remote -v", "git config user.name", "git config --get remote.origin.url", "git config --get-regexp url",
+                  "git config --list", "git config -l", "git -C d config --get remote.origin.url", "git config --global user.email x"]:
+            self.assertEqual(self.judge(c, POLICY)[0], "allow", c)
+
+    def test_a_config_edit_in_the_same_line_asks(self):
+        for c in ["cd .git && echo x > config && git push origin ai/x", "cd .git; echo x > config; git push origin ai/x",
+                  "cd .git/ && echo x > config && git push origin ai/x", "cd ../wt/.git && echo x > config && git push origin ai/x"]:
+            self.assertEqual(self.judge(c), ("ask", "git push *"), c)
+        for c in ["ls .github && git push origin ai/x", "cat .gitignore && git push origin ai/x"]:
+            self.assertEqual(self.judge(c)[0], "allow", c)
+
+    def test_a_push_inside_a_substitution_or_by_absolute_path_asks(self):
+        for c in ["echo $(git push origin main)", "echo `git push origin main`", "$(git push origin main)", "/usr/bin/git push origin main",
+                  "echo $(echo $(git push origin main))", "cat <(git push origin main)", "echo >(git push origin main)",
+                  "/usr/bin/env git push origin main", "/usr/bin/git -C d push origin main", "env /usr/bin/git push origin main",
+                  "cd .git && echo x > config && echo $(git push origin ai/x)"]:
+            self.assertEqual(self.judge(c), ("ask", "git push *"), c)
+            self.assertEqual(self.judge(c, POLICY)[0], "ask", c)
+
+    def test_a_substitution_follows_the_push_rule(self):
+        self.assertEqual(self.judge("echo $(git push origin ai/x)")[0], "allow")
+        self.assertEqual(self.judge("echo $(git push origin ai/x)", POLICY)[0], "ask")
+        for c in ["echo $(git log -1)", "/usr/bin/git log -1", "echo `git status`", "cd $(git rev-parse --show-toplevel) && ls"]:
+            self.assertEqual(self.judge(c)[0], "allow", c)
+
+    def test_output_and_sed_w_to_a_protected_path_ask(self):
+        P = self.P
+        for c in [f"git diff --out={P}", f"git diff --o={P} HEAD", f"git show --output {P} HEAD", f"sed -n '5w {P}' x",
+                  f"git log --ou {P}", f"sed -n '1p;5w {P}' x", f"sed 's/a/b/w {P}' x", f"sed -n '/x/w {P}' x"]:
+            self.assertEqual(self.judge(c), ("ask", "protected_paths"), c)
+
+    def test_output_and_sed_w_elsewhere_stay_allowed(self):
+        for c in ["git diff --out=/tmp/x", "git diff --o=/tmp/x HEAD", "git show --output /tmp/x HEAD", "sed -n '5w /tmp/x' x",
+                  "git diff HEAD", "sed -n 5,9p f", f"sed -n 5,9p {self.P}", f"git diff --stat {self.P}", "sed 's/a/b/' f"]:
+            self.assertEqual(self.judge(c)[0], "allow", c)
+
+    def test_escaped_or_variable_option_names_ask(self):
+        P = self.P
+        for c in [rf"git show -p --o\utput={P} HEAD", f"O=output; git diff --$O={P}", rf"git diff --out\put={P}", f"git diff --${{O}}={P}"]:
+            self.assertEqual(self.judge(c), ("ask", "protected_paths"), c)
+        for c in ["git log --oneline", "git diff --stat", f"git log --oneline -- {self.P}", "git diff --no-color | head"]:
+            self.assertEqual(self.judge(c)[0], "allow", c)
+
+    def test_heredoc_bodies_stay_judged(self):
+        # a heredoc body is judged like any other line (D8 is a known gap), and a merge after it is still gated
+        for c in ["gh pr comment 3 --body-file - <<'E'\ntext\nE\ngh pr merge 3",
+                  "gh pr comment 3 --body-file - <<'E'\ntext\nE\n\ngh pr merge 3",
+                  "gh pr comment 3 --body-file - <<E\ngh pr merge 3\nE",
+                  "gh pr comment 3 --body-file - <<'E' && gh pr merge 3\ntext\nE",
+                  "bash <<'E'\ngh pr merge 3\nE", "sh <<'E'\ngh pr merge 3\nE",
+                  "echo \"<<'E'\"\ngh pr merge 3\nE", "cat <<<'E'\ngh pr merge 3\nE", "cat <<'E'\ngh pr merge 3\nE",
+                  "gh pr view 3 # x <<'E'\ngh pr merge 3\nE", "(gh pr view 3)#c <<'E'\ngh pr merge 3\nE"]:
+            decision_, rule_ = self.judge(c)  # a gated merge: the gate's own verdict or the policy ask, by whether it can tell the repo
+            self.assertNotEqual(decision_, "allow", c)
+            self.assertIn(rule_, ("gh pr merge*", "merge-gate"), c)
+        self.assertEqual(self.judge("git commit -m x # <<'E'\ngit push origin main\nE"), ("ask", "git push *"))
+        self.assertNotEqual(self.judge("python3 - <<'E'\nimport os\nos.system('gh pr merge 3')\nE")[0], "allow")
+
+    def test_remote_options_before_the_subcommand_still_ask(self):
+        for c in ["git remote -v set-url origin https://evil/r.git", "git remote --verbose set-url origin x", "git remote -v add f x",
+                  "git -C d remote -v set-url origin evil", "git remote -v add fork x"]:
+            self.assertEqual(self.judge(c, POLICY)[0], "ask", c)
+        for c in ["git remote", "git remote -v", "git remote show origin", "git remote get-url origin", "git -C d remote -v"]:
+            self.assertEqual(self.judge(c, POLICY)[0], "allow", c)
+
+    def test_sed_w_with_an_escaped_space_asks(self):
+        for c in [f"sed 1\\w\\ {self.P} in.txt", f"sed -n 1\\w\\ {self.P} x"]:
+            self.assertEqual(self.judge(c), ("ask", "protected_paths"), c)
+
+    def test_config_and_remote_names_are_case_insensitive(self):
+        for c in ["git config Remote.origin.URL https://evil", "git config URL.https://evil/.insteadOf x",
+                  "git config --global Url.https://evil/.insteadOf x", "git -C d config Remote.origin.pushUrl x"]:
+            self.assertEqual(self.judge(c, POLICY)[0], "ask", c)
+        for c in ["git config --get Remote.origin.URL", "git config --global --get URL.x.insteadOf", "git config --list", "git config User.Name"]:
+            self.assertEqual(self.judge(c, POLICY)[0], "allow", c)
+
+    def test_a_config_read_flag_must_come_first(self):
+        for c in ["git config remote.origin.url https://evil --get", "git config remote.origin.url https://evil # --get",
+                  "git config remote.origin.url https://evil --list", "git config remote.origin.url x -l",
+                  "git config --add remote.origin.url x --get", "git config --get --add remote.origin.url x",
+                  "git config --get remote.origin.url --unset", "git -C d config remote.origin.url x --get-all"]:
+            self.assertEqual(self.judge(c, POLICY)[0], "ask", c)
+        for c in ["git config --get remote.origin.url", "git config --list", "git config --get-regexp url", "git config --get remote.origin.url x",
+                  "git config --global --get remote.origin.url", "git config --get --global remote.origin.url", "git -C d config -l"]:
+            self.assertEqual(self.judge(c, POLICY)[0], "allow", c)
 
 
 class FailsClosed(unittest.TestCase):
