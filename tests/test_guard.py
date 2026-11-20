@@ -420,6 +420,72 @@ class DeletesWhatTheSessionCreated(unittest.TestCase):
                   "echo \\; cd newdir; rm old.txt"]:
             self.assertEqual(self.run_rm(c), "ask", c)
 
+    def test_a_cd_that_may_not_land_where_it_looks_asks_in_the_dangerous_direction(self):
+        # old x where the shell really is, new x where the guard would believe it is: a bug turns these allow
+        self.make("x", old=True); self.make("newdir/x"); self.make("my dir/x"); self.make("sub/x")
+        for c in ["cd newdir extra; rm x",  # zsh does not go to newdir
+                  "cd my dir; rm x", "cd -- newdir extra; rm x", "cd -L; rm x",
+                  "cd nope/../newdir; rm x", "cd sub/../newdir; rm x"]:  # a lexical .. is not what the shell resolves
+            self.assertEqual(self.run_rm(c), "ask", c)
+
+    def test_a_cd_that_runs_in_the_current_shell_asks_in_the_dangerous_direction(self):
+        # new x in cwd, old x where the cd really goes
+        self.make("x"); self.make("newdir/x", old=True)
+        for c in ["echo | cd newdir; rm x",  # zsh runs the last element of a pipeline in the current shell
+                  "chdir newdir; rm x", "true && chdir newdir && rm x", "cd newdir & rm x", "cd newdir &\nrm x"]:
+            self.assertEqual(self.run_rm(c), "ask", c)
+
+    def test_a_strict_cd_is_still_followed(self):
+        self.make("x", old=True); self.make("newdir/x"); self.make("my dir/x")
+        for c in ["cd newdir && rm x", "cd -- newdir && rm x", "cd -L newdir && rm x", "cd -P newdir && rm x",
+                  "cd newdir && rm x 2>&1", "cd newdir && rm x &>/dev/null", "cd newdir && rm x 2>&1 && cd ..",
+                  "cd newdir; rm x"]:
+            self.assertEqual(self.run_rm(c), "allow", c)
+
+    def test_a_lone_ampersand_splits_and_leaves_the_folder_unknown(self):
+        self.make("x"); self.make("newdir/x")
+        for c in ["cd newdir & rm x", "sleep 1 & rm /etc/hosts", "rm x & cd newdir; rm x", "true & rm x"]:
+            self.assertEqual(self.run_rm(c), "ask", c)
+        self.assertEqual(self.run_rm("cd newdir && rm x"), "allow")  # && keeps working
+        self.assertEqual(self.run_rm("rm x 2>&1"), "allow")  # redirects are not a lone &
+        self.make("y"); self.make("z")
+        self.assertEqual(self.run_rm("rm y &> /dev/null && rm z >&2"), "allow")
+
+    def test_rm_judges_the_real_shell_words(self):
+        self.make("new dir/f"); self.make("a"); self.make("a;b", old=True); self.make("x=y", old=True)
+        self.make("n.txt"); self.make("-oldie", old=True); self.make("p q", old=True); self.make("p"); self.make("q")
+        self.assertEqual(self.run_rm('rm "new dir"'), "allow")  # one word, and it is new
+        for c in ['rm "a;b"', "rm 'a;b'", "rm a\\;b", "rm x=y n.txt", 'rm "x=y"', "rm -- n.txt -oldie", "rm -- ./n.txt -oldie",
+                  'rm "p q"', "rmdir --parent d"]:
+            self.assertEqual(self.run_rm(c), "ask", c)
+        self.assertEqual(self.run_rm("rm p q"), "allow")  # two real words: both new
+
+    def test_xargs_gives_rm_targets_nobody_read(self):
+        self.make("n.txt")
+        for c in ["xargs rm -f n.txt", "echo x | xargs rm", "echo x | xargs -I {} rm {}", "echo n.txt | xargs -n1 rm -f",
+                  "echo x | xargs rm /tmp/ok", "find . | xargs rmdir"]:
+            self.assertEqual(self.run_rm(c), "ask", c)
+
+    def test_rmdir_parent_is_rmdir_p(self):
+        self.make("oldempty", old=True, folder=True); self.make("oldempty/newsub", folder=True)
+        for c in ["rmdir --parents oldempty/newsub", "rmdir --parent oldempty/newsub", "rmdir --par oldempty/newsub", "rmdir --p oldempty/newsub", "rmdir -p oldempty/newsub"]:
+            self.assertEqual(self.run_rm(c), "ask", c)
+        self.assertEqual(self.run_rm("rmdir oldempty/newsub"), "allow")
+
+    def test_a_wrapper_that_takes_a_command_string_is_judged_like_rm(self):
+        self.make("new.txt"); self.make("old.txt", old=True)
+        for c in ["env -S 'rm old.txt'", "env -i -S 'rm old.txt'", "env A=1 -S 'rm old.txt'", "sudo -s 'rm old.txt'",
+                  "env -S 'rm -f old.txt'", "env -S 'rm new.txt old.txt'",
+                  "env rm old.txt", "env -i rm old.txt", "env A=1 rm old.txt"]:  # the plain env forms already asked: a guard
+            self.assertEqual(self.run_rm(c), "ask", c)
+        for c in ["env rm new.txt", "env -i rm new.txt", "env -S 'rm new.txt'"]:
+            self.assertEqual(self.run_rm(c), "allow", c)
+
+    def test_text_that_confuses_the_quote_aware_split_still_judges_every_guess(self):
+        self.make("p q"); self.make("p", old=True); self.make("q", old=True)
+        for c in ["rm \"p q\"; echo $'\\''; rm p q", "rm \"p q\"\necho $'\\''\nrm p q", "rm \"p q\"; cat <<'E'\nit's\nE\nrm p q"]:
+            self.assertEqual(self.run_rm(c), "ask", c)
+
     def test_case_insensitive_tracked_names_and_rmdir_p(self):
         self.make("repo", folder=True)
         subprocess.run(["git", "init", "-q", os.path.join(self.zone, "repo")], check=True)
