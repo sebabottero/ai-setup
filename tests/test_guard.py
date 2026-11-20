@@ -172,6 +172,7 @@ class Asks(unittest.TestCase):
                      "mysubprocess.run(['git','show','x'])", "x.subprocess.run(['git','show','x'])",
                      "subprocess.run(['git','show','x']); sp=__import__('sub'+'process'); sp.run(['rm','x'])"]:
             self.assertEqual(decision(head + "x=" + call + "\nE"), "ask", call)
+        self.assertEqual(decision("python3 - <<E\nimport subprocess\n$(rm -rf /etc)\nsubprocess.run(['git','show','x'])\nE"), "ask")
         self.assertEqual(decision("python3 - <<'E'\nfrom subprocess import run\nrun(['rm','x'])\nE"), "ask")
         self.assertEqual(decision("python3 - <<'E'\nimport subprocess as sp\nsp.run(['rm','x'])\nE"), "ask")
 
@@ -261,6 +262,7 @@ class Allows(unittest.TestCase):
                   'S="/tmp/a | /Users/x/p"; rm -rf $S', 'S="/tmp/a\n/Users/x/p"; rm -rf $S', 'S="/tmp/a; /Users/x/p"; find $S -delete',
                   "DIRSTACK=/tmp/a; cd /etc; rm -rf $DIRSTACK", "BASH_COMMAND=/tmp/a; rm -rf $BASH_COMMAND",
                   "BASHPID=/tmp/a; rm -rf $BASHPID",
+                  "S=/tmp//Users/x; rm -rf $S[6,20]", "S=/tmp/zed; rm -rf $S:s/tmp/Users/", "S=/tmp/a; rm -rf $S:h", "S=/tmp/a; rm -rf $S[1,5]",
                   "PIPESTATUS=/tmp/a; rm -rf $PIPESTATUS/x", "OPTIND=/tmp/a; rm -rf $OPTIND/x", "SHELLOPTS=/tmp/a; rm -rf $SHELLOPTS/x",
                   "status=/tmp/a; rm -rf $status/x", "pipestatus=/tmp/a; rm -rf $pipestatus/x", "USERNAME=/tmp/a; rm -rf $USERNAME/x",
                   "S\u00e9=/tmp/a; rm -rf $S\u00e9/x", "UID=/tmp/a; rm -rf $UID", "EPOCHSECONDS=/tmp/a; rm -rf $EPOCHSECONDS",

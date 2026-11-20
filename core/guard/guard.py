@@ -162,6 +162,8 @@ def expand_assigned(command):
     out, last = [], 0
     for use in re.finditer(r"\$\{(%s)\}|\$(%s)\b" % (names, names), command):
         name = use.group(1) or use.group(2)
+        if use.group(2) and not re.match(r"""(?:$|[\s/;&".'])""", command[use.end():use.end() + 1]):
+            continue  # zsh: $S[6,20], $S:h, $S:s/a/b/ change the value after the text was pasted
         prior = [m for m in assigns if m.group(1) == name and m.end() <= use.start()]
         if prior and _stable(command, prior[-1], use.start()):
             out += [command[last:use.start()], next(g for g in prior[-1].groups()[1:] if g is not None)]
@@ -186,6 +188,8 @@ def strip_read_only_git(command):
     """The command without inline-python calls that only run read-only git (list form, literal args, no shell) and without
     plain `import ...` lines, so RUNS_COMMANDS judges what is left. `from subprocess import x`, `as` aliases, shell=True,
     other programs, other git subcommands and dynamic imports stay in the text and still ask."""
+    if re.search(r"<<-?[ \t]*[\\\w]", command):
+        return command  # unquoted heredoc delimiter: the shell still expands $(...) and backticks in the body
     stripped, n = READ_ONLY_GIT_CALL.subn("", command)
     if not n or DYNAMIC_PYTHON.search(stripped):  # a bare `import subprocess` alone still asks
         return command
