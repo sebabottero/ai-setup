@@ -1,5 +1,5 @@
 """core/guard/guard.py: what it must ask or deny, and the gaps only the OS sandbox closes."""
-import os, subprocess, sys, tempfile, unittest
+import os, shutil, subprocess, sys, tempfile, time, unittest
 from unittest import mock
 
 os.environ["AI_SETUP_GUARD_LOG"] = "off"  # the hook and plugin tests below run the guard for real: keep them out of ~/.ai-setup
@@ -334,6 +334,144 @@ class KnownGaps(unittest.TestCase):
 
     def test_command_built_from_a_variable(self):
         self.assertNotEqual(decision("c='git pu'; $c'sh'"), "allow")
+
+
+@unittest.skipUnless(hasattr(os.stat_result, "st_birthtime"), "needs file birth times (macOS)")
+class DeletesWhatTheSessionCreated(unittest.TestCase):
+    """rm asks outside tmp, except for what this session created (born after it started), caches the tools rebuild, and
+    only inside an owned zone. The zone lives inside the repo because tmp is already allowed."""
+    def setUp(self):
+        self.zone = os.path.realpath(tempfile.mkdtemp(prefix=".owned-zone-", dir=ROOT))
+        self.addCleanup(shutil.rmtree, self.zone, True)
+        sessions = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, sessions, True)
+        os.environ["AI_SETUP_SESSIONS_DIR"] = sessions
+        self.addCleanup(os.environ.pop, "AI_SETUP_SESSIONS_DIR", None)
+        self.start = time.time() - 100
+        with open(os.path.join(sessions, "t1"), "w") as f:
+            f.write(repr(self.start))
+        self.policy = dict(POLICY, owned_zones=[self.zone])
+
+    def make(self, name, old=False, folder=False):
+        path = os.path.join(self.zone, name)
+        os.makedirs(path) if folder else (os.makedirs(os.path.dirname(path), exist_ok=True), open(path, "w").close())
+        if old:  # an mtime before the birth time moves the birth time back: the file now predates the session
+            os.utime(path, (self.start - 1000, self.start - 1000))
+        return path
+
+    def run_rm(self, command, cwd=None, session="t1"):
+        event = {"tool": "bash", "command": command, "cwd": cwd or self.zone}
+        if session:
+            event["session"] = session
+        return guard.decide(event, self.policy)[0]
+
+    def test_what_the_session_created_goes_without_asking(self):
+        self.make("new.txt"); self.make("gen/a/b.txt"); self.make("empty", folder=True); self.make("sub/x.txt")
+        for c in ["rm new.txt", "rm -rf gen", "rmdir empty", "cd sub && rm x.txt", "rm -f ./new.txt", f"rm {self.zone}/new.txt"]:
+            self.assertEqual(self.run_rm(c), "allow", c)
+
+    def test_caches_go_even_when_older_than_the_session(self):
+        self.make("__pycache__/a.pyc", old=True); self.make(".pytest_cache/v", old=True); self.make("m.pyc", old=True)
+        for c in ["rm -rf __pycache__", "rm -rf .pytest_cache", "rm m.pyc"]:
+            self.assertEqual(self.run_rm(c), "allow", c)
+
+    def test_what_was_there_before_still_asks(self):
+        self.make("old.txt", old=True); self.make("new.txt"); self.make("mixed/new.txt"); self.make("mixed/old.txt", old=True)
+        for c in ["rm old.txt", "rm -rf mixed", "rm new.txt old.txt", "rm -rf mixed/old.txt"]:
+            self.assertEqual(self.run_rm(c), "ask", c)
+
+    def test_tracked_files_still_ask(self):
+        self.make("repo", folder=True)
+        subprocess.run(["git", "init", "-q", os.path.join(self.zone, "repo")], check=True)
+        self.make("repo/f.txt")
+        subprocess.run(["git", "-C", os.path.join(self.zone, "repo"), "add", "f.txt"], check=True)
+        self.assertEqual(self.run_rm("rm repo/f.txt"), "ask")
+
+    def test_what_cannot_be_judged_still_asks(self):
+        self.make("new.txt"); self.make("a/new.txt")
+        os.symlink(ROOT, os.path.join(self.zone, "link"))
+        for c in ["rm *.txt", "rm $X/new.txt", "rm -rf .", "rm -rf a/../new.txt", "rm link/LICENSE",
+                  "rm -rf .git", "cd nope; rm new.txt", "cd $D && rm new.txt", "cd - && rm new.txt",
+                  "pushd a; rm new.txt", "rm missing.txt", "find . -name new.txt -delete"]:
+            self.assertEqual(self.run_rm(c), "ask", c)
+        self.assertEqual(self.run_rm("rm -rf " + os.path.basename(self.zone), cwd=os.path.dirname(self.zone)), "ask")  # the zone itself
+        self.assertEqual(self.run_rm("rm LICENSE", cwd=ROOT), "ask")  # outside the zone
+
+    def test_bypasses_found_in_review(self):
+        self.make("keep.txt", old=True); self.make("newdir", folder=True); self.make("newdir/keep.txt"); self.make("sub/x.txt")
+        os.symlink(ROOT, os.path.join(self.zone, "lnk"))
+        self.make("newrepo", folder=True); os.makedirs(os.path.join(self.zone, "newrepo", ".GIT"))
+        self.make("dir.pyc", folder=True, old=True)
+        for c in ["rm -rf lnk/",  # rm follows a trailing slash into the link target
+                  "false && cd newdir; rm keep.txt", "echo | cd newdir; rm keep.txt", "cd newdir || true; cd ..; rm keep.txt",
+                  "false || cd newdir; rm keep.txt", "cd sub | rm keep.txt",
+                  "rm -rf newrepo",  # a repo inside holds history, any spelling of .git
+                  "rm -rf dir.pyc"]:
+            self.assertEqual(self.run_rm(c), "ask", c)
+        self.assertEqual(self.run_rm("cd newdir && rm keep.txt"), "allow")  # the && chain still follows a real cd
+
+    def test_a_cd_that_is_not_what_it_looks_like_asks(self):
+        self.make("keep.txt"); self.make("data/keep.txt", old=True); self.make("newdir/old.txt"); self.make("old.txt", old=True)
+        self.make("data/keep.txt", old=True)
+        for c in ["builtin cd data; rm keep.txt", "command cd data; rm keep.txt", "FOO=1 cd data; rm keep.txt",
+                  "time cd data; rm keep.txt", "{ cd data; rm keep.txt; }", "if true; then cd data; rm keep.txt; fi",
+                  "for i in 1; do cd data; rm keep.txt; done",
+                  'echo "x; cd newdir"; rm old.txt', "echo hi # ; cd newdir\nrm old.txt", "cat <<E\ncd newdir\nE\nrm old.txt",
+                  "echo \\; cd newdir; rm old.txt"]:
+            self.assertEqual(self.run_rm(c), "ask", c)
+
+    def test_case_insensitive_tracked_names_and_rmdir_p(self):
+        self.make("repo", folder=True)
+        subprocess.run(["git", "init", "-q", os.path.join(self.zone, "repo")], check=True)
+        self.make("repo/README.md")
+        subprocess.run(["git", "-C", os.path.join(self.zone, "repo"), "add", "README.md"], check=True)
+        self.assertEqual(self.run_rm("rm repo/readme.md"), "ask")
+        self.make("oldempty", old=True, folder=True); self.make("oldempty/newsub", folder=True)
+        self.assertEqual(self.run_rm("rmdir -p oldempty/newsub"), "ask")
+
+    def test_a_git_failure_is_not_proof_of_untracked(self):
+        self.make("repo", folder=True)
+        subprocess.run(["git", "init", "-q", os.path.join(self.zone, "repo")], check=True)
+        self.make("repo/f.txt")
+        subprocess.run(["git", "-C", os.path.join(self.zone, "repo"), "add", "f.txt"], check=True)
+        with mock.patch.object(guard.subprocess, "run", return_value=subprocess.CompletedProcess([], 128, "", "fatal: detected dubious ownership")):
+            self.assertEqual(self.run_rm("rm repo/f.txt"), "ask")
+
+    def test_tracked_caches_still_ask(self):
+        self.make("repo", folder=True)
+        subprocess.run(["git", "init", "-q", os.path.join(self.zone, "repo")], check=True)
+        self.make("repo/.DS_Store", old=True)
+        subprocess.run(["git", "-C", os.path.join(self.zone, "repo"), "add", ".DS_Store"], check=True)
+        self.assertEqual(self.run_rm("rm repo/.DS_Store"), "ask")
+
+    def test_without_a_known_session_start_only_caches_go(self):
+        self.make("new.txt"); self.make("__pycache__", folder=True)
+        self.assertEqual(self.run_rm("rm new.txt", session=None), "ask")
+        self.assertEqual(self.run_rm("rm new.txt", session="other"), "ask")  # first seen now: new.txt predates it
+        self.assertEqual(self.run_rm("rm -rf __pycache__", session=None), "allow")
+
+    def test_outside_every_zone_still_asks(self):
+        self.policy = dict(POLICY)  # no owned_zones, and dev_root is the whole home: no zone
+        self.make("new.txt"); self.make("__pycache__", folder=True)
+        for c in ["rm new.txt", "rm -rf __pycache__"]:
+            self.assertEqual(self.run_rm(c), "ask", c)
+
+    def test_the_transcript_birth_is_the_session_start(self):
+        fake_home = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, fake_home, True)
+        original = guard.TRANSCRIPT_ROOT
+        guard.TRANSCRIPT_ROOT = fake_home + "/"
+        self.addCleanup(setattr, guard, "TRANSCRIPT_ROOT", original)
+        transcript = os.path.join(fake_home, "session.jsonl")
+        self.make("old.txt"); time.sleep(0.05)
+        open(transcript, "w").close()
+        self.make("new.txt")
+        event = {"tool": "bash", "cwd": self.zone, "transcript": transcript}
+        self.assertEqual(guard.decide(dict(event, command="rm new.txt"), self.policy)[0], "allow")
+        self.assertEqual(guard.decide(dict(event, command="rm old.txt"), self.policy)[0], "ask")
+        outside = os.path.join(self.zone, "t.jsonl")  # a transcript path outside the transcript folder is not believed
+        open(outside, "w").close()
+        self.assertEqual(guard.decide(dict(event, transcript=outside, command="rm new.txt"), self.policy)[0], "ask")
 
 
 class Log(unittest.TestCase):
