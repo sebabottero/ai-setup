@@ -4,6 +4,7 @@ tell whether a new OpenCode still calls the hook: after updating it, run `git pu
 import os, shutil, subprocess, sys, tempfile, unittest
 
 os.environ["AI_SETUP_GUARD_LOG"] = "off"  # the plugin runs the real guard: keep the tests out of ~/.ai-setup
+os.environ["AI_SETUP_ACTIONS_LOG"] = "off"  # and out of <dev_root>/logs/actions.log
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 PLUGIN = os.path.join(ROOT, "adapters", "opencode", "plugins", "ai-setup-guard.js")
@@ -23,7 +24,7 @@ console.log(JSON.stringify(out))
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
 class Plugin(unittest.TestCase):
-    def run_plugin(self, commands):
+    def run_plugin(self, commands, env=None):
         with tempfile.TemporaryDirectory() as tmp:
             with open(PLUGIN) as f:  # the installer replaces {{AI_SETUP}}; do the same into a temp copy
                 code = f.read().replace("{{AI_SETUP}}", ROOT)
@@ -33,12 +34,23 @@ class Plugin(unittest.TestCase):
                 f.write(code)
             with open(driver, "w") as f:
                 f.write(DRIVER % plugin)
-            out = subprocess.run(["node", driver, __import__("json").dumps(commands)], capture_output=True, text=True, timeout=60)
+            out = subprocess.run(["node", driver, __import__("json").dumps(commands)], capture_output=True, text=True, timeout=60, env=env)
         self.assertEqual(out.returncode, 0, out.stderr)
         return __import__("json").loads(out.stdout)
 
     def test_risky_commands_ask_and_everyday_ones_pass(self):
         self.assertEqual(self.run_plugin(["git push origin main", "git status", "bash -c 'git push'"]), ["ask", "allow", "ask"])
+
+    def test_the_suite_does_not_write_the_real_actions_log(self):
+        with tempfile.TemporaryDirectory() as home:  # a leak would land in <home>/**/logs/actions.log, never in the real one
+            self.assertEqual(self.run_plugin(["git push origin main"], env=dict(os.environ, HOME=home)), ["ask"])
+            leaked = [os.path.join(d, n) for d, _, names in os.walk(home) for n in names if n.startswith("actions.log")]
+        self.assertEqual(leaked, [])
+        with tempfile.TemporaryDirectory() as tmp:  # and the log still works when pointed at a file
+            log = os.path.join(tmp, "actions.log")
+            self.run_plugin(["git push origin main"], env=dict(os.environ, AI_SETUP_ACTIONS_LOG=log))
+            with open(log) as f:
+                self.assertIn("git push origin main", f.read())
 
     def test_secrets_are_denied(self):
         self.assertEqual(self.run_plugin(["cat ~/.ssh/id_rsa"]), ["deny"])

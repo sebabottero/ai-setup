@@ -91,12 +91,20 @@ def starts_command(words, i):
         w in WRAPPERS or w.startswith("-") or re.fullmatch(r"\d+[smhd]?", w) for w in words[:i])
 
 
+def rm_targets(args):
+    """The paths an rm / rmdir names: no options, and after `--` every word (`rm -- -foo` removes a file called -foo)."""
+    if "--" in args:
+        i = args.index("--")
+        return [w for w in args[:i] if not w.startswith("-")] + args[i + 1:]
+    return [w for w in args if not w.startswith("-")]
+
+
 def rm_outside_tmp(seg):
     """(True, first target outside tmp or None) for an rm / rmdir / find -delete segment; (False, None) otherwise."""
     words = NO_OUTPUT.sub(" ", seg).split()  # rm -rf x 2>/dev/null: the redirection is not a target
     cmd = os.path.basename(words[0]) if words else ""
     if cmd in ("rm", "rmdir"):
-        targets = [w for w in words[1:] if not w.startswith("-")]
+        targets = rm_targets(words[1:])
     elif cmd == "find" and "-delete" in words:
         paths = []  # find [-H|-L|-P] path... expression: the paths end at the first expression word
         for w in words[1:]:
@@ -668,15 +676,70 @@ def session_owned(target, cwd, policy, start):
     return start is not None and _born_after(final, start) and not _tracked(final)
 
 
+def scratch_zones(policy):
+    """Folders where rm is always free: `scratch_zones` in a layer. A zone counts only when it is an absolute path (after ~)
+    under the real dev_root, is a real folder path (no symlink in it), and is neither `/`, home nor dev_root itself."""
+    dev = os.path.expanduser(layers.dev_root(policy))
+    zones = policy.get("scratch_zones", [])
+    if not os.path.isabs(dev) or not isinstance(zones, list):
+        return []
+    dev = os.path.realpath(dev)
+    found = []
+    for z in zones:
+        if not isinstance(z, str) or not z.strip():
+            continue
+        path = os.path.expanduser(z.strip())
+        if not os.path.isabs(path):
+            continue
+        path = os.path.normpath(path)
+        if path in ("/", os.path.realpath(os.path.expanduser("~")), dev) or os.path.realpath(path) != path or not path.startswith(dev + "/"):
+            continue
+        found.append(path)
+    return found
+
+
+def _holds_repo(path):
+    """A `.git` at any depth inside the folder (or too many entries to look through): its history is not scratch."""
+    count = 0
+    for _, dirs, files in os.walk(path, followlinks=False):
+        for name in dirs + files:
+            count += 1
+            if name.lower() == ".git" or count > MAX_OWNED_ENTRIES:
+                return True
+    return False
+
+
+def scratch_owned(target, cwd, policy):
+    """True when `rm target` removes something inside a scratch zone: the same literal rules as session_owned (no glob /
+    variable / .., not .git, not the folder the command runs in, it exists, a link is judged by itself), but with no
+    age or session test. Never the zone itself, never a folder that holds a repo."""
+    if re.search(r"[*?\[\]{}$`\\]", target) or ".." in target.split("/") or target.split("/")[-1] == ".":
+        return False
+    zones = scratch_zones(policy)
+    if not zones or (cwd is None and not os.path.isabs(os.path.expanduser(target))):
+        return False
+    full = os.path.normpath(os.path.join(cwd or "/", os.path.expanduser(target)))
+    final = os.path.join(os.path.realpath(os.path.dirname(full)), os.path.basename(full))
+    if not any(final.startswith(zone + "/") for zone in zones) or ".git" in final.lower().split("/"):
+        return False
+    if (target.endswith("/") and os.path.islink(final)) or not os.path.lexists(final):
+        return False
+    if cwd is not None:
+        here = os.path.realpath(cwd)
+        if here == final or here.startswith(final + "/"):
+            return False
+    return os.path.islink(final) or not os.path.isdir(final) or not _holds_repo(final)
+
+
 def owned_rm(seg, cwd, policy, start):
-    """An `rm` / `rmdir` whose every target is in tmp or was created by this session."""
+    """An `rm` / `rmdir` whose every target is in tmp, was created by this session or is inside a scratch zone."""
     words = NO_OUTPUT.sub(" ", seg).split()
     if not words or os.path.basename(words[0]) not in ("rm", "rmdir"):
         return False
     if any(w == "--parents" or (w.startswith("-") and not w.startswith("--") and "p" in w) for w in words[1:]) and os.path.basename(words[0]) == "rmdir":
         return False  # rmdir -p also removes the parents, which this session may not have created
-    targets = [w for w in words[1:] if not w.startswith("-")]
-    return bool(targets) and all(_inside_tmp(t) or session_owned(t, cwd, policy, start) for t in targets)
+    targets = rm_targets(words[1:])
+    return bool(targets) and all(_inside_tmp(t) or session_owned(t, cwd, policy, start) or scratch_owned(t, cwd, policy) for t in targets)
 
 
 CD_WORD = re.compile(r"(?<![\w./-])(?:cd|pushd|popd)(?![\w./-])")

@@ -488,6 +488,140 @@ class DeletesWhatTheSessionCreated(unittest.TestCase):
         self.assertEqual(guard.decide(dict(event, transcript=outside, command="rm new.txt"), self.policy)[0], "ask")
 
 
+class ScratchZones(unittest.TestCase):
+    """`scratch_zones`: rm is free inside a declared folder, whatever the age of what is in it and with no session. The zone
+    sits under a dev_root that is not tmp (tmp is switched off below), so only scratch_owned can be what allows."""
+    def setUp(self):
+        self.base = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.base, True)
+        self.zone = os.path.join(self.base, "_scratch")
+        self.outside = os.path.join(self.base, "outside")
+        os.makedirs(self.zone); os.makedirs(self.outside)
+        patcher = mock.patch.object(guard, "_inside_tmp", return_value=False)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.policy = dict(POLICY, dev_root=self.base, scratch_zones=[self.zone])
+
+    def make(self, name, folder=False, root=None):
+        path = os.path.join(root or self.zone, name)
+        os.makedirs(path) if folder else (os.makedirs(os.path.dirname(path), exist_ok=True), open(path, "w").close())
+        os.utime(path, (1000, 1000))  # old: never born in a session
+        return path
+
+    def rm(self, command, cwd=None, policy=None):
+        return guard.decide({"tool": "bash", "command": command, "cwd": cwd or self.base}, policy or self.policy)[0]  # no session
+
+    def test_a_literal_path_inside_the_zone_goes_without_asking(self):
+        z = self.zone
+        self.make("topic/a.bak"); self.make("topic/b.txt"); self.make("empty", folder=True); self.make("t/a"); self.make("t2/a")
+        self.make("t3/a"); os.symlink(self.outside, os.path.join(z, "lnk"))
+        for c in [f"rm {z}/topic/a.bak", f"rm -rf {z}/topic", f"rmdir {z}/empty", f"S={z}/t2; rm $S/a", f"S={z}/t2\nrm $S/a",
+                  f"cd {z} && rm -rf t3/a", f"rm {z}/lnk", f"rm -f {z}/t/a"]:
+            self.assertEqual(self.rm(c), "allow", c)
+        self.make("t4/a")
+        self.assertEqual(self.rm("rm t4/a", cwd=z), "allow")  # a relative path, from a known folder
+
+    def test_only_the_zone_allows_it(self):
+        self.make("a"); self.make("other/a", root=self.base)
+        self.assertEqual(self.rm(f"rm {self.zone}/a"), "allow")
+        self.assertEqual(self.rm(f"rm '{self.zone}/a'"), "allow")  # the guard reads quotes like the shell: the real path is judged
+        self.assertEqual(self.rm(f"rm {self.zone}/a", policy=dict(self.policy, scratch_zones=[])), "ask")  # same file, no zone declared
+        self.assertEqual(self.rm(f"rm {self.zone}/a", policy=dict(POLICY, dev_root=self.base)), "ask")  # the key is absent
+        self.assertEqual(self.rm(f"rm {self.base}/other/a"), "ask")  # a sibling of the zone: old, not tmp, no session
+
+    def test_the_zone_itself_and_what_escapes_it_asks(self):
+        z = self.zone
+        self.make("a"); self.make("proj/f"); self.make("x", root=self.outside)
+        for c in [f"rm -rf {z}", f"rm -rf {z}/", f"rm -rf {z}/.", f"rm {z}/../outside/x", f"rm {z}/*", f"rm {z}/?", f"rm {z}/[a]",
+                  f"rm -rf {z}/.git", f"rm -rf {z}/proj/.GIT", f"rm {z}/missing", "rm -rf ../outside", f"rm '{z}/*'", f'rm "{z}/a" "{z}/*"', f"rm '{z}/../outside/x'",
+                  f"rm $S/a", f"S=$(mktemp -d); rm $S/a", f"rm $(mktemp -d)/x", f"S={z}/a; S=/x; rm $S", f"false && S={z}; rm $S/a",
+                  f"find {z} -delete", f"find {z}/proj -name f -delete", f"rm {z}/a\\ b", f"rm -rf {self.base}"]:
+            self.assertEqual(self.rm(c), "ask", c)
+
+    def test_shell_syntax_in_a_target_asks(self):
+        z = self.zone
+        self.make("{a,../outside/x}"); self.make("x", root=self.outside); self.make("a")
+        for ch in "{}$`\\":  # each character of the class on its own, on a target that exists literally
+            name = f"b{ch}c"
+            if ch != "\\":
+                self.make(name)
+            self.assertEqual(self.rm(f"rm {z}/{name}"), "ask", name)
+        self.assertEqual(self.rm(f"rm {z}/{{a,../outside/x}}"), "ask")  # brace expansion would reach outside/x
+
+    def test_after_double_dash_every_word_is_a_target(self):
+        z = self.zone
+        self.make("a"); self.make("-foo", root=self.base)
+        self.assertEqual(self.rm(f"rm -rf -- {z}/a -foo"), "ask")  # -foo is a file in the folder the command runs in
+        self.assertEqual(self.rm(f"rm -rf -- {z}/a", cwd=self.base), "allow")
+        self.assertEqual(self.rm(f"rm -- {z}/a {z}/-x"), "ask")  # missing
+
+    def test_a_lookalike_prefix_asks(self):
+        self.make("x", root=self.zone + "-evil")
+        self.assertEqual(self.rm(f"rm {self.zone}-evil/x"), "ask")
+
+    def test_a_symlink_cannot_carry_the_delete_out(self):
+        z = self.zone
+        self.make("x", root=self.outside); self.make("a"); self.make("x")  # x exists on both sides of the link
+        os.symlink(self.outside, os.path.join(z, "lnk"))
+        for c in [f"rm {z}/lnk/x", f"rm -rf {z}/lnk/", f"rm -rf {z}/lnk/x", f"cd {z}/lnk && rm x", f"rm {z}/lnk/../x"]:
+            self.assertEqual(self.rm(c), "ask", c)
+        self.assertEqual(self.rm(f"rm -rf {z}/lnk"), "allow")  # the link itself is inside the zone
+        self.assertTrue(os.path.exists(os.path.join(self.outside, "x")))
+
+    def test_a_zone_that_is_a_symlink_is_ignored(self):
+        link = os.path.join(self.base, "zlink")
+        os.symlink(self.zone, link)
+        self.make("a")
+        policy = dict(self.policy, scratch_zones=[link])
+        self.assertEqual(self.rm(f"rm {link}/a", policy=policy), "ask")
+        self.assertEqual(self.rm(f"rm {self.zone}/a", policy=policy), "ask")
+        swapped = os.path.join(self.base, "swapped")  # a zone whose parent is a link
+        os.symlink(self.outside, swapped)
+        self.make("a", root=self.outside); os.makedirs(os.path.join(self.outside, "z"))
+        self.assertEqual(self.rm(f"rm {swapped}/z/a", policy=dict(self.policy, scratch_zones=[swapped + "/z"])), "ask")
+
+    def test_zones_that_are_too_wide_or_misplaced_are_ignored(self):
+        self.make("a")
+        elsewhere = os.path.realpath(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, elsewhere, True)
+        self.make("a", root=elsewhere)
+        for zones, target in [(["/"], f"{self.zone}/a"), (["~"], f"{self.zone}/a"), ([""], f"{self.zone}/a"),
+                              ([self.base], f"{self.zone}/a"),  # dev_root itself
+                              (["_scratch"], f"{self.zone}/a"), ([os.path.relpath(self.zone, self.base)], f"{self.zone}/a"),
+                              ([elsewhere], f"{elsewhere}/a"),  # outside dev_root
+                              ("not a list", f"{self.zone}/a")]:
+            self.assertEqual(self.rm(f"rm {target}", policy=dict(self.policy, scratch_zones=zones)), "ask", zones)
+        with mock.patch.dict(os.environ, {"HOME": self.base}):
+            self.assertEqual(self.rm(f"rm {self.zone}/a", policy=dict(self.policy, scratch_zones=["~"])), "ask")
+            self.assertEqual(self.rm(f"rm {self.zone}/a", policy=dict(self.policy, scratch_zones=["~/_scratch"])), "allow")  # ~ is expanded
+
+    def test_a_repo_inside_the_zone_asks(self):
+        z = self.zone
+        self.make("proj/sub/.git/HEAD"); self.make("proj/sub/f"); self.make("plain/f")
+        for c in [f"rm -rf {z}/proj", f"rm -rf {z}/proj/sub", f"rm -rf {z}/proj/sub/.git"]:
+            self.assertEqual(self.rm(c), "ask", c)
+        self.assertEqual(self.rm(f"rm -rf {z}/plain"), "allow")
+
+    def test_what_cannot_be_placed_asks(self):
+        z = self.zone
+        self.make("t/a"); self.make("t/b"); self.make("t/sub", folder=True)
+        self.assertEqual(self.rm("rm a", cwd=z + "/t"), "allow")
+        self.assertEqual(self.rm(f"rm -rf {z}/t", cwd=z + "/t"), "ask")  # the folder the command runs in
+        self.assertEqual(self.rm(f"rm -rf {z}/t", cwd=z + "/t/sub"), "ask")  # or inside it
+        self.assertEqual(self.rm("rm t/b", cwd=z + "/../outside"), "ask")  # relative, from elsewhere: no such file
+        self.assertFalse(guard.scratch_owned("t/a", None, self.policy))  # a relative path with no known folder
+        self.assertTrue(guard.scratch_owned(f"{z}/t/a", None, self.policy))  # an absolute one needs none
+        self.assertEqual(self.rm("cd $D && rm t/a", cwd=z), "ask")
+        self.assertEqual(self.rm(f"cd $D && rm {z}/t/a", cwd=z), "allow")
+
+    def test_one_bad_target_asks_for_the_whole_command(self):
+        z = self.zone
+        self.make("a"); self.make("x", root=self.outside)
+        for c in [f"rm {z}/a {z}", f"rm {z}/a /etc/x", f"rm {z}/a {self.outside}/x", f"rm {z}/a {z}/*"]:
+            self.assertEqual(self.rm(c), "ask", c)
+        self.assertEqual(self.rm(f"rm {z}/a {z}/a"), "allow")
+
+
 class Log(unittest.TestCase):
     """AI_SETUP_GUARD_LOG=<file>: one line per decision (time, tool, decision, rule). Never the command itself."""
     def setUp(self):
