@@ -410,6 +410,25 @@ class DeletesWhatTheSessionCreated(unittest.TestCase):
             self.assertEqual(self.run_rm(c), "ask", c)
         self.assertEqual(self.run_rm("cd newdir && rm keep.txt"), "allow")  # the && chain still follows a real cd
 
+    def test_a_cd_that_is_not_what_it_looks_like_asks(self):
+        self.make("keep.txt"); self.make("data/keep.txt", old=True); self.make("newdir/old.txt"); self.make("old.txt", old=True)
+        self.make("data/keep.txt", old=True)
+        for c in ["builtin cd data; rm keep.txt", "command cd data; rm keep.txt", "FOO=1 cd data; rm keep.txt",
+                  "time cd data; rm keep.txt", "{ cd data; rm keep.txt; }", "if true; then cd data; rm keep.txt; fi",
+                  "for i in 1; do cd data; rm keep.txt; done",
+                  'echo "x; cd newdir"; rm old.txt', "echo hi # ; cd newdir\nrm old.txt", "cat <<E\ncd newdir\nE\nrm old.txt",
+                  "echo \\; cd newdir; rm old.txt"]:
+            self.assertEqual(self.run_rm(c), "ask", c)
+
+    def test_case_insensitive_tracked_names_and_rmdir_p(self):
+        self.make("repo", folder=True)
+        subprocess.run(["git", "init", "-q", os.path.join(self.zone, "repo")], check=True)
+        self.make("repo/README.md")
+        subprocess.run(["git", "-C", os.path.join(self.zone, "repo"), "add", "README.md"], check=True)
+        self.assertEqual(self.run_rm("rm repo/readme.md"), "ask")
+        self.make("oldempty", old=True, folder=True); self.make("oldempty/newsub", folder=True)
+        self.assertEqual(self.run_rm("rmdir -p oldempty/newsub"), "ask")
+
     def test_a_git_failure_is_not_proof_of_untracked(self):
         self.make("repo", folder=True)
         subprocess.run(["git", "init", "-q", os.path.join(self.zone, "repo")], check=True)

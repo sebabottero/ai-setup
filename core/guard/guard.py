@@ -613,7 +613,7 @@ def _tracked(path):
     """True when git tracks the path (or a file under it), or when that cannot be told: only "not a git repository" is a no."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}  # a GIT_DIR must not decide for the user's repo
     try:
-        result = subprocess.run(["git", "-C", os.path.dirname(path), "ls-files", "--", os.path.basename(path)],
+        result = subprocess.run(["git", "-C", os.path.dirname(path), "ls-files", "--", ":(icase,literal)" + os.path.basename(path)],
                                 capture_output=True, text=True, timeout=5, env=env)
     except (OSError, subprocess.TimeoutExpired):
         return True
@@ -648,8 +648,13 @@ def owned_rm(seg, cwd, policy, start):
     words = NO_OUTPUT.sub(" ", seg).split()
     if not words or os.path.basename(words[0]) not in ("rm", "rmdir"):
         return False
+    if any(w == "--parents" or (w.startswith("-") and not w.startswith("--") and "p" in w) for w in words[1:]) and os.path.basename(words[0]) == "rmdir":
+        return False  # rmdir -p also removes the parents, which this session may not have created
     targets = [w for w in words[1:] if not w.startswith("-")]
     return bool(targets) and all(_inside_tmp(t) or session_owned(t, cwd, policy, start) for t in targets)
+
+
+CD_WORD = re.compile(r"(?<![\w./-])(?:cd|pushd|popd)(?![\w./-])")
 
 
 def segments_in(command, cwd):
@@ -658,6 +663,10 @@ def segments_in(command, cwd):
     A cd that may not run (after `&&`, `||` or `|`) is only believed by the commands chained to it with `&&`; in a
     pipeline it runs in a subshell and changes nothing."""
     cur = os.path.normpath(cwd or os.getcwd())
+    # The split below does not understand quotes, comments, heredocs, braces or keywords: with any of them and a `cd`
+    # in the text, a cd it reads may not run (or one that runs may be unseen), so no folder is believed.
+    unclean = re.search(r"""['"#{}\\]|<<""", command) or COMPOUND.search(command)
+    blind = bool(unclean and CD_WORD.search(command))
     pieces = re.split(r"(&&|\|\||[;|\n])", command)
     prev, maybe = ";", False  # connector before this part; the folder came from a cd that may not have run
     for i in range(0, len(pieces), 2):
@@ -665,13 +674,15 @@ def segments_in(command, cwd):
         if maybe and prev != "&&":
             cur, maybe = None, False
         words = words_of(part)
-        if words[:1] in (["pushd"], ["popd"]):
+        if blind or (CD_WORD.search(part) and words[:1] != ["cd"]):  # `builtin cd`, `FOO=1 cd`, `time cd`...: not followed
+            cur = None
+        elif words[:1] in (["pushd"], ["popd"]):
             cur = None
         elif words[:1] == ["cd"]:
             target = os.path.expanduser(words[1]) if len(words) > 1 else os.path.expanduser("~")
             nxt = None if cur is None or "$" in target or target == "-" or re.search(r"[(){}`]", part) \
                 else os.path.normpath(os.path.join(cur, target))
-            nxt = nxt if nxt and os.path.isdir(nxt) else None
+            nxt = nxt if nxt and os.path.isdir(nxt) and os.access(nxt, os.X_OK) else None
             if prev == "||":
                 cur = None  # it ran only if the command before failed: unknown
             elif prev == "|" or after == "|":
