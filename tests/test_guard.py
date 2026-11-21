@@ -387,11 +387,6 @@ class KnownGaps(unittest.TestCase):
         self.assertNotEqual(decision("c='git pu'; $c'sh'"), "allow")
 
     @unittest.expectedFailure
-    def test_heredoc_body_text_is_judged_by_the_merge_gate(self):
-        c = "gh pr comment 3 --body-file - <<'E'\ngh pr merge 3\nE"  # D8: the body is only text, but the guard reads it as a merge
-        self.assertEqual(guard.bash(c, POLICY, ROOT)[2], "gh pr comment*")
-
-    @unittest.expectedFailure
     def test_config_edit_in_a_folder_named_by_a_glob(self):
         policy = dict(POLICY, push_allow={"remotes": ["origin"], "branches": ["ai/*"]})
         self.assertNotEqual(guard.decide({"tool": "bash", "command": "cd .g* && echo x > config && git push origin ai/x", "cwd": ROOT}, policy)[0], "allow")
@@ -1472,6 +1467,130 @@ class PushToAiBranches(unittest.TestCase):
 
     def test_the_decision_names_the_push_rule(self):
         self.assertEqual(guard.bash("git push origin main", self.policy)[2], "git push *")
+
+
+def personal_layer_root():
+    """Folder of the private layers repo: AI_SETUP_PERSONAL_DIR, else the sibling ai-setup-personal; None when absent."""
+    path = os.path.realpath(os.environ.get("AI_SETUP_PERSONAL_DIR") or os.path.join(ROOT, "..", "ai-setup-personal"))
+    return path if os.path.isfile(os.path.join(path, "personal", "policy.json")) else None
+
+
+@unittest.skipUnless(personal_layer_root(), "ai-setup-personal not found (set AI_SETUP_PERSONAL_DIR)")
+class PushAllowOfPersonalPolicy(unittest.TestCase):
+    """A pin on the real personal/policy.json (another repo): its push_allow keeps letting `git push origin ai/x` run.
+    It breaks when that file changes the remotes or branches, which is the point: the two repos are coupled here."""
+
+    def test_the_composed_policy_allows_ai_branches_only(self):
+        self.addCleanup(layers.set_extra_roots, list(layers.EXTRA_ROOTS))
+        layers.set_extra_roots([personal_layer_root()])
+        policy = layers.compose_policy(ROOT, ["core", "personal"])
+
+        def d(c):
+            return guard.decide({"tool": "bash", "command": c, "cwd": ROOT}, policy)[0]
+        self.assertEqual(d("git push origin ai/x"), "allow")
+        for c in ["git push origin main", "git push origin HEAD", "git push --force origin ai/x"]:
+            self.assertEqual(d(c), "ask", c)
+
+
+class HeredocComment(unittest.TestCase):
+    """D8: the body of `gh pr|issue comment <N> [--body-file -|-F -] <<'E'` is only text. One whole-command match
+    (plain_comment_heredoc) keeps the body out of the merge gate; anything not exactly that shape is judged as before."""
+    PR, ISSUE = "gh pr comment*", "gh issue comment*"
+    BODIES = ["gh pr merge 3", "git push origin main", "bash -c 'x'", "plain text $(id) `id` $HOME", "", "two\nlines  \n\ttabbed é"]
+
+    def rule(self, c):
+        return guard.bash(c, POLICY, ROOT)[2]
+
+    def test_a_plain_body_is_not_judged_as_commands(self):
+        for body in self.BODIES:
+            for head, rule in [("gh pr comment 3 --body-file - <<'E'", self.PR), ("gh pr comment 3 -F - <<'E'", self.PR),
+                               ("gh pr comment 30 <<'E'", self.PR), ("gh issue comment 7 --body-file - <<'E'", self.ISSUE),
+                               ("gh issue comment 7 <<'Body_1'", self.ISSUE)]:
+                end = head.split("<<")[1].strip("'")
+                for tail in ["", "\n", "\n\n \t\n"]:
+                    c = f"{head}\n{body}\n{end}{tail}"
+                    self.assertEqual(self.rule(c), rule, repr(c))
+                    self.assertEqual(guard.plain_comment_heredoc(c), head, repr(c))
+
+    def test_the_comment_still_asks(self):
+        c = "gh pr comment 3 --body-file - <<'E'\ngh pr merge 3\nE"
+        self.assertEqual(guard.decide({"tool": "bash", "command": c, "cwd": ROOT}, POLICY)[0], "ask")
+        self.assertEqual(guard.bash(c, POLICY, ROOT)[2], "gh pr comment*")  # was KnownGaps: the merge gate read the body
+
+    def test_outside_the_sandbox_the_rule_is_still_the_comment(self):
+        c = "gh issue comment 3 --body-file - <<'E'\ngit push origin main\nE"
+        event = {"tool": "bash", "command": c, "cwd": ROOT, "unsandboxed": True}
+        self.assertEqual(guard.judge(event, POLICY)[0], "ask")
+        self.assertEqual(guard.judge(event, POLICY)[2], self.ISSUE)
+
+    def test_not_exactly_the_shape_is_judged_as_before(self):
+        merge = "gh pr merge 3"
+        cases = [
+            f"gh pr comment 3 --body-file - <<E\n{merge}\nE",  # unquoted delimiter: the shell expands the body
+            f"gh pr comment 3 <<\"E\"\n{merge}\nE", f"gh pr comment 3 <<\\E\n{merge}\nE", f"gh pr comment 3 <<-'E'\n{merge}\nE",
+            f"gh pr comment #3 <<'E'\n{merge}\nE",  # `#` starts a shell comment: the heredoc never happens
+            f"gh pr comment 3 <<'E'\r\n{merge}\r\nE", f"gh pr comment 3 <<'E'\n{merge}\rx\nE", f"gh pr comment 3 <<'E'\n{merge}\x1b[0m\nE",
+            f"gh pr comment 3 <<'E'\n{merge}\x0b\nE", f"gh pr comment 3 <<'E'\n{merge}\x00\nE",
+            f"gh pr comment 3 <<'E' \\\n{merge}\nE", f"gh pr comment 3 \\\n<<'E'\n{merge}\nE",  # line continuation
+            f"gh pr comment 3 <<'E'\n{merge}\nE ", f"gh pr comment 3 <<'E'\n{merge}\n E", f"gh pr comment 3 <<'E'\n{merge}",  # not the terminator
+            f"gh pr comment 3 <<'E' \n{merge}\nE", f"gh pr comment 3  <<'E'\n{merge}\nE", f" gh pr comment 3 <<'E'\n{merge}\nE",
+            f"gh pr comment 3 <<'E' && ls\n{merge}\nE", f"gh pr comment 3 <<'E'; ls\n{merge}\nE", f"gh pr comment 3 <<'E' | cat\n{merge}\nE",
+            f"gh pr comment 3 <<'E' > out\n{merge}\nE", f"gh pr comment 3 --body-file - -b x <<'E'\n{merge}\nE",
+            f"gh pr comment 3 --body-file $(id) <<'E'\n{merge}\nE", f"gh pr comment 3 --body-file - --web <<'E'\n{merge}\nE",
+            f"gh pr comment 3 --body-file - <<'E'\n{merge}\nE\n{merge}", f"gh pr comment 3 <<'E'\n{merge}\nE\ngh pr merge 3",
+            f"gh pr comment 3 <<'E'\n{merge}\nE; gh pr merge 3", f"gh pr comment 3 <<'E'\n{merge}\nE | sh",
+            f"gh pr comment 3 <<'E'\n{merge}\nE&& gh pr merge 3", f"gh pr comment 3 <<'E'\nE\n{merge}\nE",  # early terminator
+            f"gh pr comment 3 <<'E'\nx\nE\n{merge}\nE", f"gh pr comment 3 <<'E'\n{merge}\nEE",
+            f"gh pr comment 3 --body-file - <<'E'\n{merge}\nE\n\x1b", f"gh pr comment 3 <<'E'\n{merge}\nE\n\x0c",
+            f"gh pr comment 3 <<'1E'\n{merge}\nE", f"gh pr comment 3 <<'E-'\n{merge}\nE-", f"gh pr comment 3 <<''\n{merge}\n",
+            f"gh pr comment ٣ <<'E'\n{merge}\nE", f"gh pr comment 3 <<'É'\n{merge}\nÉ",  # not ASCII
+            f"gh pr comment <<'E'\n{merge}\nE", f"gh pr comment 3x <<'E'\n{merge}\nE", f"gh pr comment https://x/pull/3 <<'E'\n{merge}\nE",
+            f"gh pr merge 3 --body-file - <<'E'\n{merge}\nE", f"gh pr review 3 <<'E'\n{merge}\nE", f"gh pr create <<'E'\n{merge}\nE",
+            f"cat <<'E'\n{merge}\nE", f"git commit -F - <<'E'\n{merge}\nE", f"echo hi; gh pr comment 3 <<'E'\n{merge}\nE",
+        ]
+        for c in cases:
+            self.assertEqual(guard.plain_comment_heredoc(c), c, repr(c))
+        with mock.patch.object(guard, "merge_gate", return_value=[]):  # the gate asks gh over the network: the merge rule is enough here
+            for c in cases:
+                decision_, _, rule = guard.bash(c, POLICY, ROOT)
+                self.assertNotEqual(decision_, "allow", repr(c))
+                self.assertNotIn(rule, (self.PR, self.ISSUE), repr(c))  # the merge is still found
+
+    def test_a_body_that_names_a_secret_or_a_protected_path_still_asks(self):
+        c = f"gh pr comment 3 --body-file - <<'E'\ncat ~/{SECRET}\nE"
+        self.assertEqual(guard.bash(c, POLICY, ROOT)[0], "deny")
+        c = "gh pr comment 3 --body-file - <<'E'\necho x > core/policy.json\nE"
+        self.assertEqual(guard.bash(c, POLICY, ROOT)[2], "protected_paths")
+
+    def test_an_empty_or_unrelated_command_is_left_alone(self):
+        for c in ["", "ls", "gh pr comment 3"]:
+            self.assertEqual(guard.plain_comment_heredoc(c), c)
+
+    def test_the_shell_runs_only_gh_with_the_body_on_stdin(self):
+        """Differential: every accepted command goes through /bin/sh with stubs for gh, git and bash on PATH. The body must
+        reach gh as stdin and nothing else may run; if sh disagreed with the matcher, a body line would run a stub."""
+        stubs, work = tempfile.mkdtemp(), tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, stubs, True)
+        self.addCleanup(shutil.rmtree, work, True)
+        for name in ("gh", "git", "bash"):
+            with open(os.path.join(stubs, name), "w") as f:
+                f.write(f'#!/bin/sh\necho "{name} $*" >> "$STUB_LOG"\n' + ('cat > "$STUB_IN"\n' if name == "gh" else ""))
+            os.chmod(os.path.join(stubs, name), 0o755)
+        env = {"PATH": stubs + ":/usr/bin:/bin", "STUB_LOG": os.path.join(work, "log"), "STUB_IN": os.path.join(work, "in")}
+        for body in self.BODIES:
+            for head in ["gh pr comment 3 --body-file - <<'E'", "gh pr comment 3 -F - <<'E'", "gh issue comment 7 <<'E'"]:
+                for tail in ["", "\n", "\n\n \t\n"]:
+                    c = f"{head}\n{body}\nE{tail}"
+                    self.assertEqual(guard.plain_comment_heredoc(c), head, repr(c))
+                    for p in ("log", "in"):
+                        if os.path.exists(os.path.join(work, p)):
+                            os.remove(os.path.join(work, p))
+                    run = subprocess.run(["/bin/sh", "-c", c], cwd=work, env=env, capture_output=True, text=True, encoding="utf-8")
+                    self.assertEqual(run.returncode, 0, (c, run.stderr))
+                    with open(os.path.join(work, "log"), encoding="utf-8") as f:
+                        self.assertEqual(f.read().splitlines(), ["gh " + head[len("gh "):head.index(" <<")]], repr(c))
+                    with open(os.path.join(work, "in"), encoding="utf-8") as f:
+                        self.assertEqual(f.read(), body + "\n", repr(c))
 
 
 class PushAndWriteHoles(unittest.TestCase):
