@@ -261,9 +261,24 @@ def tea_read_only(seg):
 CONNECTOR = re.compile(r"&&|\|\||\|&|(?<![<>&|])&(?![>&])|[;|\n]")  # a lone & too, but not >&, &>, 2>&1
 
 
+def _without_git_options(words):
+    """`git` plus the words after its global options (git -C dir -c k=v push → git push), if it had any."""
+    j = 1
+    while j < len(words) and words[j].startswith("-"):
+        j += 2 if words[j] in GIT_OPTS_WITH_VALUE else 1
+    if j > 1:
+        yield Seg(" ".join(["git"] + words[j:]))
+
+
 def _part_segments(part):
     orig = shell_words(part)
-    kept = [(k, w) for k, w in enumerate(orig) if not re.match(r"^\w+=", w)]  # env assignments are not the command
+    kept = []
+    for k, w in enumerate(orig):
+        # env assignments are not the command, but only in the prefix (wrappers, their flags, assignments): after the
+        # command word `x=y` is an argument or an option value (git -c x=y push)
+        in_prefix = all(os.path.basename(p) in WRAPPERS or p.startswith("-") or re.fullmatch(r"\d+[smhd]?", p) for _, p in kept)
+        if not (in_prefix and re.match(r"^\w+=", w)):
+            kept.append((k, w))
     words = [w for _, w in kept]
     # /usr/bin/git, /usr/bin/env: a wrapper or git named by path is judged by its name
     named = [os.path.basename(w) if "/" in w and os.path.basename(w) in WRAPPERS | {"git", "gh"} else w for w in words]
@@ -283,12 +298,10 @@ def _part_segments(part):
             again = Seg(" ".join(inner))
             again.words = inner
             yield again
+            if inner and os.path.basename(inner[0]) == "git":  # env -S 'git -c k=v push': judge the option-less form too
+                yield from _without_git_options(inner)
         if named[i] == "git":  # git --no-pager -C dir -c k=v push → git push
-            j = i + 1
-            while j < len(words) and words[j].startswith("-"):
-                j += 2 if words[j] in GIT_OPTS_WITH_VALUE else 1
-            if j > i + 1:
-                yield Seg(" ".join(["git"] + words[j:]))
+            yield from _without_git_options(words[i:])
 
 
 def segments(command):
