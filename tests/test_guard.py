@@ -121,6 +121,33 @@ class Asks(unittest.TestCase):
                   "git -C 'a b' -c core.x=1 --no-pager tag v2"]:
             self.assertEqual(decision(c), "ask", c)
 
+    def test_git_option_value_with_equals_is_not_an_env_assignment(self):
+        for c, sub in [("git -c x=y push --force origin main", "git push"), ("/usr/bin/git -c x=y push origin main", "git push"),
+                       ("env -i git -c x=y push", "git push"), ("git -c a=b remote set-url origin u", "git remote"),
+                       ("git --config-env x=y push", "git push"), ("git -C dir -c x=y push", "git push"),
+                       ("git -c core.x=1 -c a=b push", "git push"), ("git -c x=y -C d push", "git push"),
+                       ("env -S 'git -c x=y push'", "git push")]:
+            self.assertTrue(any(s.startswith(sub) for s in guard.segments(c)), c)
+            self.assertEqual(decision(c), "ask", c)
+
+    def test_env_assignments_before_the_command_still_ask_or_pass(self):
+        for c in ["FOO=1 git push", "env FOO=1 git push", "sudo FOO=1 git push", "FOO=1 env BAR=2 git push",
+                  "env -i FOO=1 git push", "git -c user.name=x push"]:
+            self.assertEqual(decision(c), "ask", c)
+        for c in ["FOO=1 git status", "git -c x=y status"]:
+            self.assertEqual(decision(c), "allow", c)
+
+    def test_assignment_segments_are_unchanged(self):
+        self.assertEqual(list(guard.segments("rm x=y")), ["rm x=y"])
+        self.assertEqual(list(guard.segments("x=y")), [])
+        self.assertEqual(list(guard.segments("FOO=1 git push")), ["git push"])
+        self.assertEqual(list(guard.segments("env FOO=1 git push")), ["env git push", "git push"])
+
+    def test_blank_wrapper_word_does_not_raise(self):
+        for c in ["env -S ' '", "env ' '", "sudo -s ' '"]:
+            list(guard.segments(c))
+            decision(c)
+
     def test_inline_git_alias(self):
         self.assertEqual(decision("git -c alias.p=push p origin main"), "ask")
 
