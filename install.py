@@ -354,6 +354,22 @@ def add_hook(settings, event, matcher, script, timeout):
         groups.append({"matcher": matcher, "hooks": [hook]} if matcher else {"hooks": [hook]})
 
 
+PUSH_NAME = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*")
+
+
+def push_rules(pol):
+    """`git push` command patterns for policy push_allow: remote x branch, plus the -u / --set-upstream forms. Only a
+    literal branch or a `prefix/*` glob made of safe characters that the guard itself lets run; anything else is skipped."""
+    allow = pol.get("push_allow") or {}
+    names = lambda items: [n for n in items if isinstance(n, str)]
+    remotes = [r for r in names(allow.get("remotes") or []) if PUSH_NAME.fullmatch(r) and not r.startswith("-")]
+    branches = [b for b in names(allow.get("branches") or [])
+                if PUSH_NAME.fullmatch(b[:-2] if b.endswith("/*") else b) and ".." not in b and not b.startswith("-")]
+    rules = [f"git push {flag}{r} {b}" for r in remotes for b in branches for flag in ("", "-u ", "--set-upstream ")]
+    # a rule the guard would ask about (x.lock, ai/x., refs/heads/ai/*) is skipped, not an error
+    return [c for c in rules if guard.decide({"tool": "bash", "command": c.replace("*", "x"), "cwd": "/tmp"}, pol)[0] == "allow"]
+
+
 def claude_lists(pol):
     """The settings.json lists a policy contributes: {path of keys: items}. Install adds them; uninstall subtracts."""
     sb = pol.get("sandbox", {})
@@ -364,6 +380,7 @@ def claude_lists(pol):
                                 [f"Edit(/{p})" for p in protected_paths(pol)],  # "//" = absolute path in Claude rules
         # read-only commands and MCP tools that never need a prompt; ask and deny rules still win over these
         ("permissions", "allow"): [f"Bash({c})" for c in pol.get("allow_commands", [])] +
+                                  [f"Bash({c})" for c in push_rules(pol)] +  # the hook still asks on a tainted line: this never widens the guard
                                   [f"Edit(/{expand(d)}/**)" for d in pol.get("work_dirs", [])] +  # work_dirs: edits without a prompt (the ask rules above still win)
                                   ["mcp__" + t.replace(".", "__") for t in pol.get("allow_mcp_tools", []) if "*" not in t],
         ("permissions", "deny"): [f"{tool}(**/{f})" for f in pol.get("deny_files", []) for tool in ("Read", "Edit")] +
@@ -692,6 +709,9 @@ def lint_policy(pol):
     for ask in asks:
         if decide(ask.replace("*", "x")) not in ("ask", "deny"):
             problems.append(f"ask_commands '{ask}' would not ask: it is allowed by another rule")
+    for rule in push_rules(pol):  # the permission rule must never allow what the guard asks about
+        if decide(rule.replace("*", "x")) != "allow":
+            problems.append(f"push_allow rule '{rule}' does not run without asking: the guard disagrees")
     for tool in pol.get("allow_mcp_tools", []):
         if tool in pol.get("ask_mcp_tools", []):
             problems.append(f"allow_mcp_tools and ask_mcp_tools both list '{tool}'")

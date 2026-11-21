@@ -925,6 +925,26 @@ def config_read(seg):
         w in CONFIG_SCOPE or not w.startswith("-") for w in rest[1:]) and "#" not in rest
 
 
+COMMENT_HEREDOC = re.compile(r"gh (?:pr|issue) comment [0-9]+(?: (?:--body-file|-F) -)? <<'([A-Za-z_][A-Za-z0-9_]*)'", re.ASCII)
+
+
+def plain_comment_heredoc(command):
+    """The first line alone when the whole command is exactly `gh pr|issue comment <N> [--body-file -|-F -] <<'E'`, a body
+    that the quoted delimiter keeps as plain text, the terminator line `E`, and only spaces, tabs and newlines after it.
+    Then the body is text for gh, not commands, and the rest of the guard judges the comment line itself. Anything else
+    (an unquoted or other delimiter, text before or after, a terminator that is not exact, a carriage return or other
+    control character) comes back unchanged and is judged as before. Line based: no pattern runs over the body."""
+    first, sep, rest = command.partition("\n")
+    match = COMMENT_HEREDOC.fullmatch(first)
+    if not sep or not match or any((c < " " and c not in "\n\t") or c == "\x7f" for c in command):
+        return command
+    lines = rest.split("\n")
+    if match.group(1) not in lines:
+        return command
+    after = lines[lines.index(match.group(1)) + 1:]
+    return first if "".join(after).strip(" \t") == "" else command
+
+
 def bash(command, policy, cwd=None, depth=0, start=None):
     """(decision, reason, rule): rule names what decided (a policy pattern or a check), never the command."""
     hit = secret(command, policy) or secret_after_cd(command, policy, cwd)
@@ -935,6 +955,7 @@ def bash(command, policy, cwd=None, depth=0, start=None):
     target = protected(command, policy, cwd)
     if target:
         return "ask", f"'{target}' is one of the setup's own rules (policy: protected_paths): confirm the change", "protected_paths"
+    command = plain_comment_heredoc(command)  # after the secret and protected checks, which read the whole text
     found = []  # every ask the command earns; the riskiest one is shown, so 'git commit && git reset --hard' reads as high
     if depth < MAX_DEPTH:  # bash -c 'cd repo && git push': judge the inner command as if it was typed alone
         for m in INNER.finditer(command):
@@ -1065,6 +1086,7 @@ def unsandboxed(command, policy, cwd, decision, reason, rule):
     """A call that leaves the OS sandbox: it runs on its own (and is listed in the receipt) unless it also earns an ask,
     writes outside the safe zone, or is one of the policy's unsandboxed_ask_commands (the setup's own installer)."""
     note = "runs outside the sandbox, which removes the OS wall"
+    command = plain_comment_heredoc(command)
     if decision == "ask":
         return "ask", f"{note}. Also: {reason}", rule
     target = write_outside_safe_zone(command, policy, cwd)
