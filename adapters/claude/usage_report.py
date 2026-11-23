@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Local usage report from Claude Code transcripts: how many sessions grow past 150k tokens, which models
 run the turns, which tools dominate. Reads ~/.claude/projects only; sends nothing anywhere.
-Usage: python3 -I adapters/claude/usage_report.py [days]   (default: all transcripts)"""
-import collections, datetime, glob, json, os, sys, time
+Usage: python3 -I adapters/claude/usage_report.py [days]   (default: all transcripts)
+       python3 -I adapters/claude/usage_report.py --ticket <slug> [--dev-root DIR]
+           tokens, turns and wall time of the sessions listed in <dev root>/handoffs/<slug>/run.json"""
+import argparse, collections, datetime, glob, json, os, sys, time
 
 LIMIT = 150_000
 TOKEN_KEYS = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
@@ -10,7 +12,7 @@ TOKEN_KEYS = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_t
 
 def summarize(paths):
     models, tools = collections.Counter(), collections.Counter()
-    contexts, output = [], 0
+    contexts, output, total_in = [], 0, 0
     for path in paths:
         peak = 0
         with open(path, errors="ignore") as f:
@@ -25,7 +27,9 @@ def summarize(paths):
                 continue
             usage = msg.get("usage")
             if usage and d.get("type") == "assistant":
-                peak = max(peak, sum(usage.get(k, 0) for k in TOKEN_KEYS))
+                used = sum(usage.get(k, 0) for k in TOKEN_KEYS)
+                peak = max(peak, used)
+                total_in += used
                 output += usage.get("output_tokens", 0)
                 models[msg.get("model", "?")] += 1
             for block in msg.get("content") if isinstance(msg.get("content"), list) else []:
@@ -35,7 +39,7 @@ def summarize(paths):
             contexts.append(peak)
     return {"sessions": len(contexts), "over_150k": sum(c > LIMIT for c in contexts),
             "over_300k": sum(c > 2 * LIMIT for c in contexts), "max_context": max(contexts, default=0),
-            "output_tokens": output, "models": models, "tools": tools}
+            "output_tokens": output, "input_tokens": total_in, "turns": sum(models.values()), "models": models, "tools": tools}
 
 
 def guard_summary(path=None, since=None):
@@ -89,7 +93,7 @@ def _actions_path():
     return guard.actions_log_path()
 
 
-def ask_outcomes(path=None, since=None):
+def ask_outcomes(path=None, since=None, until=None):
     """How the asks in the action log ended (guard.actions_log_path unless a path is given). Outcome lines are linked to
     the `asked` line by session + command, oldest first; the ask's own time is the decision time (a `declined` line is
     stamped when it was inferred). Returns None without a log, else {approved, declined, unknown, unresolved, asks}.
@@ -114,7 +118,7 @@ def ask_outcomes(path=None, since=None):
     for key, times in asks.items():
         for when in sorted(times):
             outcome = outcomes[key].popleft() if outcomes[key] else None  # oldest ask takes the oldest outcome
-            if since is not None and when < since:
+            if (since is not None and when < since) or (until is not None and when >= until):
                 continue
             result["asks"] += 1
             result[outcome or "unresolved"] += 1
@@ -165,6 +169,86 @@ def ask_report(days=None, now=None, guard_path=None, actions_path=None):
     return lines
 
 
+def projects_dir():
+    return os.environ.get("AI_SETUP_PROJECTS_DIR") or os.path.expanduser("~/.claude/projects")
+
+
+def wall_seconds(path):
+    """Seconds between the first and the last timestamp of one transcript; None when it has fewer than two."""
+    stamps = []
+    with open(path, errors="ignore") as f:
+        for line in f:
+            try:
+                d = json.loads(line)
+            except ValueError:
+                continue
+            when = _when(d["timestamp"].replace("Z", "+00:00")) if isinstance(d, dict) and isinstance(d.get("timestamp"), str) else None
+            if when:
+                stamps.append(when if when.tzinfo else when.replace(tzinfo=datetime.timezone.utc))
+    return (max(stamps) - min(stamps)).total_seconds() if len(stamps) > 1 else None
+
+
+def _run_json():
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "core", "guard"))
+    import run_json
+    return run_json
+
+
+def _dev_root():
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "core", "guard"))
+    import guard, layers
+    return layers.dev_root(guard.load())
+
+
+def run_usage(run, projects=None):
+    """Cost of the sessions in one run record (a dict). Never guesses: sessions without an id in the record, or without a
+    transcript under projects/*/<id>.jsonl, are listed apart and add nothing. Returns a dict."""
+    projects = projects or projects_dir()
+    ids = [i for i in run.get("sessions") or [] if isinstance(i, str) and i and os.path.basename(i) == i]
+    found, missing = {}, []
+    for i in ids:
+        hit = sorted(glob.glob(os.path.join(glob.escape(projects), "*", i + ".jsonl")))
+        if hit:
+            found[i] = hit[0]
+        else:
+            missing.append(i)
+    s = summarize(list(found.values()))
+    spans = [w for w in (wall_seconds(p) for p in found.values()) if w is not None]
+    return {"sessions_listed": len(ids), "sessions_found": len(found), "missing": missing,
+            "input_tokens": s["input_tokens"], "output_tokens": s["output_tokens"], "turns": s["turns"],
+            "wall_seconds": sum(spans) if spans else None}
+
+
+def hms(seconds):
+    if seconds is None:
+        return "n/a"
+    m = int(round(seconds / 60))
+    return f"{m // 60}h{m % 60:02d}m" if m >= 60 else f"{m}m"
+
+
+def ticket_report(slug, dev_root=None, projects=None):
+    """Lines for `--ticket`: tokens, turns and wall time of the ticket's sessions from its run.json."""
+    rj = _run_json()
+    dev_root = dev_root or _dev_root()
+    path = rj.run_path(dev_root, slug)
+    run = rj.load(path)
+    if run is None:
+        return [f"Ticket {slug}: no run.json at {path}"]
+    u = run_usage(run, projects)
+    lines = [f"Ticket {slug} (branch {run.get('branch') or '?'}, {run.get('start') or '?'} to {run.get('end') or 'open'})"]
+    if not u["sessions_listed"]:
+        lines.append("  no session ids in run.json, so tokens, turns and time are unknown (ticket-flow records them with --session auto)")
+        return lines
+    lines.append(f"  sessions: {u['sessions_found']} of {u['sessions_listed']} with a transcript")
+    if u["missing"]:
+        lines.append("  no transcript for: " + ", ".join(u["missing"]) + " (not counted)")
+    if u["sessions_found"]:
+        total = u["input_tokens"] + u["output_tokens"]
+        lines.append(f"  tokens: {total} ({u['input_tokens']} input incl. cache, {u['output_tokens']} output)  |  turns: {u['turns']}"
+                     f"  |  wall time: {hms(u['wall_seconds'])}")
+    return lines
+
+
 def main(days=None, now=None):
     paths = glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
     if days:
@@ -188,4 +272,15 @@ def main(days=None, now=None):
 
 
 if __name__ == "__main__":
-    main(int(sys.argv[1]) if len(sys.argv) > 1 else None)
+    ap = argparse.ArgumentParser()
+    ap.add_argument("days", nargs="?", type=int)
+    ap.add_argument("--ticket")
+    ap.add_argument("--dev-root")
+    args = ap.parse_args()
+    if args.ticket:
+        try:
+            print("\n".join(ticket_report(args.ticket, args.dev_root)))
+        except ValueError as exc:
+            ap.error(str(exc))
+    else:
+        main(args.days)
