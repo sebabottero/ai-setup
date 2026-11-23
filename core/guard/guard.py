@@ -88,6 +88,28 @@ def words_of(part):
         return re.sub(r"[\"']", " ", part).split()
 
 
+def words_without_redirects(part):
+    """words_of minus shell redirections (2>&1, >/dev/null, &>f, >>f, 2> f): they are not arguments of the command. Only an
+    unquoted word that starts with the operator is one: '>y', ">y" and \\>y stay arguments (git allows > in a branch name)."""
+    words, word = [], []
+    for m in re.finditer(r"""'[^']*'|"(?:\\.|[^"\\])*"|\\.|\s+|[^\s'"\\]+|.""", part):
+        if m.group().isspace():
+            word = []
+        else:
+            if not word:
+                words.append(word)
+            word.append(m.group())
+    kept, k = [], 0
+    while k < len(words):
+        m = re.fullmatch(r"(?:\d*|&)(?:>>?|<)(.*)", words[k][0], re.S)
+        if not m:
+            kept.append("".join(words[k]))
+        elif not m.group(1) and len(words[k]) == 1:  # the target is the next word
+            k += 1
+        k += 1
+    return words_of(" ".join(kept))
+
+
 def shell_words(part):
     """The words of a simple command as the shell sees them: a quoted word stays one word, even with `(` or a backtick
     in it. Parens and backticks outside quotes are dropped (`(cd x`, `$(rm y`)."""
@@ -587,7 +609,7 @@ def merge_gate(command, policy, cwd=None):
         net = part.count("(") - part.count(")")
         stack += [(cur, branch)] * max(net, 0)
         closing = max(-net, 0)
-        words = words_of(part)
+        words = words_without_redirects(part)
         k = 0
         while k < len(words) and re.match(r"^\w+=", words[k]):
             k += 1
