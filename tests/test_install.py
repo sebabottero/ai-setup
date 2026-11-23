@@ -225,6 +225,102 @@ class UnsandboxedOptIn(unittest.TestCase):
         self.assertTrue(merged["sandbox"]["allow_unsandboxed_commands"])
 
 
+class OpencodeSandbox(unittest.TestCase):
+    """Criterion 13: an opt-in srt wall for OpenCode, built from policy.json; off = nothing changes."""
+    @classmethod
+    def setUpClass(cls):
+        cls.off, cls.on = tempfile.mkdtemp(), tempfile.mkdtemp()
+        cls.run_off, cls.run_on = install(cls.off), install(cls.on, "--opencode-sandbox")
+
+    def files(self, home):
+        out = {}
+        for d, _, names in os.walk(home):
+            if ".ai-setup-backups" in d:
+                continue
+            for n in names:
+                p = os.path.join(d, n)
+                if os.path.islink(p):
+                    text = os.readlink(p)
+                else:
+                    with open(p) as f:
+                        text = f.read()
+                out[os.path.relpath(p, home)] = text.replace(home, "<home>")
+        return out
+
+    def test_both_runs_succeed(self):
+        self.assertEqual(self.run_off.returncode, 0, self.run_off.stderr)
+        self.assertEqual(self.run_on.returncode, 0, self.run_on.stderr)
+
+    def test_off_writes_no_sandbox_files(self):
+        self.assertFalse(os.path.exists(os.path.join(self.off, ".ai-setup")))
+
+    def test_on_only_adds_the_two_files(self):
+        off, on = self.files(self.off), self.files(self.on)
+        added = sorted(set(on) - set(off))
+        self.assertEqual(added, [os.path.join(".ai-setup", "bin", "opencode-sandboxed"),
+                                 os.path.join(".ai-setup", "opencode-sandbox.json")])
+        self.assertEqual({k: v for k, v in on.items() if k in off}, off)  # everything else is identical: default unchanged
+
+    def test_settings_come_from_the_policy(self):
+        with open(os.path.join(self.on, ".ai-setup", "opencode-sandbox.json")) as f:
+            cfg = json.load(f)
+        with open(os.path.join(self.on, ".claude", "settings.json")) as f:
+            claude = json.load(f)["sandbox"]
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "adapters", "opencode", "sandbox", "extra.json")) as f:
+            extra = json.load(f)
+        self.assertEqual(cfg["network"]["allowedDomains"], claude["network"]["allowedDomains"] + extra["extra_domains"])  # Claude's list exactly, then OpenCode's own hosts, nothing else
+        self.assertEqual(cfg["filesystem"]["denyWrite"], claude["filesystem"]["denyWrite"])
+        self.assertIn(os.path.join(self.on, ".ssh"), cfg["filesystem"]["denyRead"])
+        self.assertIn(os.path.join(self.on, ".local/share/NuGet"), cfg["filesystem"]["allowWrite"])  # the work fixture layer adds it
+        self.assertTrue(any(p.startswith(self.on + "/**/") for p in cfg["filesystem"]["denyRead"]))  # secret files, anywhere under home
+
+    def test_launcher_runs_srt_with_the_settings_and_is_marked(self):
+        launcher = os.path.join(self.on, ".ai-setup", "bin", "opencode-sandboxed")
+        with open(launcher) as f:
+            text = f.read()
+        self.assertTrue(os.access(launcher, os.X_OK))
+        self.assertIn(os.path.join(self.on, ".ai-setup", "opencode-sandbox.json"), text)
+        self.assertIn("srt --settings", text)
+        self.assertIn("TO VERIFY", text)
+        self.assertNotIn("{{", text)
+
+    def test_opencode_needs_are_added(self):
+        with open(os.path.join(self.on, ".ai-setup", "opencode-sandbox.json")) as f:
+            cfg = json.load(f)
+        for d in (".local/share/opencode", ".config/opencode", ".cache/opencode", ".local/state/opencode"):
+            self.assertIn(os.path.join(self.on, d), cfg["filesystem"]["allowWrite"])
+        self.assertNotIn(".", cfg["filesystem"]["allowWrite"])
+        self.assertIn("api.anthropic.com", cfg["network"]["allowedDomains"])
+
+    def test_launcher_adds_the_project_dir_and_quotes_the_settings_path(self):
+        home = os.path.join(tempfile.mkdtemp(), "a b")  # a space in the path
+        os.makedirs(home)
+        self.assertEqual(install(home, "--opencode-sandbox").returncode, 0)
+        bin_dir, proj = tempfile.mkdtemp(), tempfile.mkdtemp()
+        fake = os.path.join(bin_dir, "srt")  # stands in for srt: prints the settings it was given
+        with open(fake, "w") as f:
+            f.write('#!/bin/sh\ncat "$2"\n')
+        os.chmod(fake, 0o755)
+        env = {**os.environ, "PATH": bin_dir + os.pathsep + os.environ["PATH"]}
+        r = subprocess.run([os.path.join(home, ".ai-setup", "bin", "opencode-sandboxed")], cwd=proj, env=env,
+                           capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn(os.path.realpath(proj), json.loads(r.stdout)["filesystem"]["allowWrite"])
+
+    def test_warns_when_opencode_is_not_installed(self):
+        home = tempfile.mkdtemp()
+        r = subprocess.run([sys.executable, "-I", os.path.join(ROOT, "install.py"), "--home", home, "--build", BUILD,
+                            "--tools", "claude", "--layers-dir", FIXTURES, "--opencode-sandbox"], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("--opencode-sandbox", r.stderr)
+        self.assertFalse(os.path.exists(os.path.join(home, ".ai-setup")))
+
+    def test_dry_run_writes_nothing(self):
+        home = tempfile.mkdtemp()
+        self.assertEqual(install(home, "--opencode-sandbox", "--dry-run").returncode, 0)
+        self.assertFalse(os.path.exists(os.path.join(home, ".ai-setup")))
+
+
 class Collisions(unittest.TestCase):
     def test_adapter_cannot_shadow_core(self):
         sys.path.insert(0, ROOT)

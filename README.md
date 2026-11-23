@@ -34,7 +34,7 @@ $ echo '{"tool":"bash","command":"git status"}' | python3 core/guard/guard.py
         └─► deny  ─► blocked                  .env.local, SSH and cloud credentials
         │
         ▼
-   OS sandbox (Claude only): the wall if the guard misses something
+   OS sandbox (Claude; OpenCode opt-in via srt): the wall if the guard misses something
 ```
 The rules are plain JSON in [`core/policy.json`](core/policy.json) (shortened here):
 ```json
@@ -55,6 +55,14 @@ cd ~/Dev/ai-setup
 ./bootstrap.py --dry-run     # shows what it would install, changes nothing
 ./bootstrap.py               # tools, then ./install.sh (runs the tests, backs up whatever it replaces)
 ```
+
+### OpenCode OS sandbox (opt-in)
+OpenCode has no OS wall of its own, so by default it gets rules plus the guard only. To add one, install [`srt`](https://github.com/anthropic-experimental/sandbox-runtime) yourself (`npm install -g @anthropic-ai/sandbox-runtime`; ai-setup never installs it) and run:
+```bash
+./install.sh --opencode-sandbox   # writes ~/.ai-setup/opencode-sandbox.json and ~/.ai-setup/bin/opencode-sandboxed
+~/.ai-setup/bin/opencode-sandboxed   # opencode inside srt, built from the same policy.json (srt settings unverified)
+```
+The settings reuse `policy.json` (allowed domains, `allow_write`, `work_dirs`, secrets, protected paths) and add what OpenCode needs because srt wraps the whole process: its state dirs (writable) and model-provider hosts, listed in `adapters/opencode/sandbox/extra.json` (edit it for the providers you use, then re-run the installer). The launcher adds the folder you start it from to the writable paths at launch. It is not identical to Claude's sandbox. Without the flag nothing is written and the install is unchanged. The srt settings format was written offline and is marked `TO VERIFY` in the launcher: check it against `srt --help` before trusting it.
 
 ## What you get
 | | |
@@ -111,7 +119,7 @@ work from tickets, or want to see and cut your token spend.
 **Probably not** if you only run short throwaway scripts, need Windows, or expect a security boundary from the guard alone.
 
 ## Limits
-- **A seatbelt, not a wall.** The guard cannot read a script file, a variable-built command or base64 (listed in `tests/test_guard.py`). The OS sandbox is the wall, Claude only. Found a bypass? Report it privately: see [SECURITY.md](SECURITY.md).
+- **A seatbelt, not a wall.** The guard cannot read a script file, a variable-built command or base64 (listed in `tests/test_guard.py`). The OS sandbox is the wall: Claude gets it by default, OpenCode only with the opt-in below. Found a bypass? Report it privately: see [SECURITY.md](SECURITY.md).
 - **macOS first.** Linux works for the guard, installer and tests. No Windows. OpenCode uses a beta plugin API; Codex gets instructions and skills only.
 - **No telemetry.** The guard keeps a local log without the command itself; `AI_SETUP_GUARD_LOG=off` disables it.
 

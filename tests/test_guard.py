@@ -1394,6 +1394,68 @@ class MergeGate(unittest.TestCase):
         self.assertIn("Verdict: NEEDS CHANGES", run.stdout)
         self.assertEqual(review_report.parse(run.stdout)["verdict"], "NEEDS CHANGES")
 
+    def review_cli(self, *args):
+        return subprocess.run([sys.executable, "-I", os.path.join(ROOT, "core", "guard", "review_report.py"), *args],
+                              capture_output=True, text=True)
+
+    def test_header_keeps_the_previous_round_as_rN_and_leaves_the_newest_in_place(self):
+        path = self.review_cli("header", "--dir", self.repo, "--dev-root", self.dev).stdout.splitlines()[0]
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        for text in ("round one\n", "round two\n"):
+            self.review_cli("header", "--dir", self.repo, "--dev-root", self.dev)
+            with open(path, "w") as f:
+                f.write(text)
+        base = path[:-3]
+        self.assertEqual(open(path).read(), "round two\n")  # the merge gate keeps reading <branch>.md
+        self.assertEqual(open(base + ".r1.md").read(), "round one\n")
+        self.assertFalse(os.path.exists(base + ".r2.md"))
+
+    def test_header_without_a_later_write_adds_no_round(self):
+        path = self.review_cli("header", "--dir", self.repo, "--dev-root", self.dev).stdout.splitlines()[0]
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write("round one\n")
+        for _ in range(3):
+            self.review_cli("header", "--dir", self.repo, "--dev-root", self.dev)
+        self.assertEqual(sorted(os.listdir(os.path.dirname(path))), [os.path.basename(path), os.path.basename(path)[:-3] + ".r1.md"])
+        open(path, "w").close()  # an empty report is never archived
+        self.review_cli("header", "--dir", self.repo, "--dev-root", self.dev)
+        self.assertEqual(len(os.listdir(os.path.dirname(path))), 2)
+
+    def test_log_refuses_a_missing_or_empty_report_and_a_missing_stage(self):
+        path = self.review_cli("header", "--dir", self.repo, "--dev-root", self.dev).stdout.splitlines()[0]
+        log = os.path.join(self.dev, "logs", "reviews.log")
+        run = self.review_cli("log", "--dir", self.repo, "--dev-root", self.dev, "--stage", "3")
+        self.assertNotEqual(run.returncode, 0)  # no report yet
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        open(path, "w").close()
+        run = self.review_cli("log", "--dir", self.repo, "--dev-root", self.dev, "--stage", "3")
+        self.assertNotEqual(run.returncode, 0)  # empty report
+        with open(path, "w") as f:
+            f.write("Verdict: PASS\n")
+        run = self.review_cli("log", "--dir", self.repo, "--dev-root", self.dev)
+        self.assertNotEqual(run.returncode, 0)  # no --stage
+        self.assertFalse(os.path.exists(log))
+
+    def test_log_appends_one_line_with_round_stage_verdict_and_severities(self):
+        path = self.review_cli("header", "--dir", self.repo, "--dev-root", self.dev).stdout.splitlines()[0]
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        old = "Verdict: NEEDS CHANGES\n| severity | where | problem |\n|---|---|---|\n| Critical | a:1 | x |\n| Warning | b:2 | y |\n| Nit | c | z |\n"
+        new = "Verdict: PASS\n| severity | triage | reason |\n|---|---|---|\n| **major** | fix_now | x |\n| nit | defer | y |\n| nit | reject | z |\n"
+        log = os.path.join(self.dev, "logs", "reviews.log")
+        for text, stage in ((old, "3"), (new, "4")):
+            self.review_cli("header", "--dir", self.repo, "--dev-root", self.dev)
+            with open(path, "w") as f:
+                f.write(text)
+            run = self.review_cli("log", "--dir", self.repo, "--dev-root", self.dev, "--stage", stage)
+            self.assertEqual(run.returncode, 0, run.stderr)
+        lines = open(log).read().splitlines()
+        self.assertEqual(len(lines), 2)
+        first, second = [l.split("\t") for l in lines]
+        self.assertEqual(first[3:], ["1", "3", "NEEDS CHANGES", "critical=1 warning=1 nit=1"])
+        self.assertEqual(second[3:], ["2", "4", "PASS", "major=1 nit=2"])
+        self.assertEqual(first[2], second[2])
+
     def test_parse_reads_bullets_bold_and_whole_values(self):
         import review_report
         text = "- **Commit:** abc1234\n* Tree: def5678\n**Verdict: NEEDS CHANGES**\n"

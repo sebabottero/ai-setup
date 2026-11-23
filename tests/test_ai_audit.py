@@ -200,6 +200,19 @@ class Audit(unittest.TestCase):
         self.assertIn("1 of 2 sessions", row[3])
         self.assertNotEqual(row[2], "n/a")
 
+    def test_review_reports_count_nested_folders_one_per_branch_and_rounds_apart(self):
+        self.write("README.md", "x\n")
+        self.commit()
+        self.session("sample-repo/real", '{"input":{"subagent_type":"sub-review","prompt":"p"}}')
+        base = os.path.join(self.dev, "reviews", "sample-repo")
+        for rel in ("main.md", "ai/one.md", "ai/one.r1.md", "ai/one.r2.md", "bot/two.md", "bot/two.r1.md"):
+            path = os.path.join(base, rel)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            open(path, "w").write("r\n")
+        detail = self.rows(self.run_audit())[0][3]
+        self.assertIn("3 review reports", detail)
+        self.assertIn("3 earlier rounds", detail)
+
     def test_missing_sessions_dir_is_na_and_exit_0(self):
         self.write("README.md", "x\n")
         self.commit()

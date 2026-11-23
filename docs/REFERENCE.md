@@ -33,6 +33,7 @@ Missing: which environment fails? (default: local)
   a command built from a variable that is not a plain literal, or base64: those stay as `expectedFailure` in `tests/test_guard.py`. The OS sandbox is the wall (Claude only).
 - **Comment bodies.** `gh pr comment` / `gh issue comment <N> [--body-file -|-F -] <<'E'` with a quoted delimiter, the terminator `E` and nothing but whitespace after it is judged by its first line only: the body is text, so a line like `gh pr merge 3` in it does not trip the merge gate (the command still asks as a comment). Secret and protected-path checks still read the whole text. Any other shape (unquoted delimiter, `#N`, a carriage return or control character, extra text before or after, another command) is judged as before.
 - **OpenCode** uses a beta plugin API; our side is tested with a fake context, not the real OpenCode. **Codex** gets instructions and skills only.
+- **Review history.** `review_report.py header` copies an earlier non-empty report to `<branch>.r<N>.md` before the new one is written (the newest stays at `<branch>.md`, which the merge gate reads); running it twice without a new report adds no round. `review_report.py log --stage 3|4` appends one tab-separated line to `$DEV/logs/reviews.log` (time, repo, branch, round, stage, verdict, findings per severity, read from the issues table: `critical/warning/nit` or `blocking/major/minor/nit`). `ai-audit` practice 1 counts reports in nested folders, one per branch, and reports earlier rounds apart.
 - **No telemetry.** The guard keeps a local log (`~/.ai-setup/guard.log`: time, decision, rule; never the command). `AI_SETUP_GUARD_LOG=off` disables it.
 - **Action log for the receipt.** `$DEV/logs/actions.log` (`AI_SETUP_ACTIONS_LOG`, `off` disables) lists, per session, what ran
   outside the sandbox, what matched `log_commands` (local commits, installs) and every ask, with its risk. The command is kept
@@ -132,7 +133,7 @@ earlier that no layer produces any more. Rules you added by hand stay.
 | Capability | Claude Code | OpenCode v2 | Codex |
 |---|---|---|---|
 | Ask for OK / forbid (guard) | PreToolUse hook → `core/guard` | `permission.evaluate` plugin → `core/guard` (beta API: after updating, check that `git push` asks) | ❌ |
-| OS-level wall | native `sandbox`: secrets, network, writes | ❌ (rules + guard only) | ❌ |
+| OS-level wall | native `sandbox`: secrets, network, writes | ❌ by default (rules + guard); opt-in `install.py --opencode-sandbox` writes srt settings + launcher | ❌ |
 | Protect its own rules | `Edit` asks for OK + sandbox `denyWrite` | `edit` asks for OK + guard | ❌ |
 | Models | `tier` → opus / sonnet / haiku + `effort`; subagents without a tier (`general-purpose`) run on Sonnet | `tiers.json` → any provider | — |
 
@@ -210,7 +211,7 @@ Put your own rules in a layer (a folder with the files below); `core/` stays unt
 | `push_allow` | `{"remotes": [...], "branches": [...]}` (a layer key, off by default): `git push [-u] <remote> <branch>` with both named runs without asking. The branch must be spelled out (`ai/x`, `ai/x:ai/x`, `HEAD:ai/x`); bare `git push`, `HEAD`, `--force`, `+ref`, tags, `--delete`, `--all`, `--mirror`, a refspec list and `git -c` / `git config` / `git remote` / `xargs` / a `.git` path in the same line still ask. For Claude the installer also adds `Bash(git push <remote> <branch>)` and the `-u` / `--set-upstream` forms to `permissions.allow`, only for a literal branch or a `prefix/*` glob of safe characters (and checks the guard allows each one); the rule alone is wider than the guard (it also matches extra arguments such as `--force`): the hook is what asks, so if the hook is broken or absent the rule widens what runs. The hook still asks on a tainted line, and uninstall takes the rules out. OpenCode has no such rule and keeps asking on `git push`. |
 | `ask_mcp_tools` | MCP tools (`server.tool`, globs) that ask first. |
 | `work_dirs` | Extra folders the agent may work in. |
-| `sandbox` | `allowed_domains`, `allow_write`, `unsandboxed_commands`, `allow_unsandboxed_commands` (Claude only). |
+| `sandbox` | `allowed_domains`, `allow_write`, `unsandboxed_commands`, `allow_unsandboxed_commands` (Claude). With `install.py --opencode-sandbox`, OpenCode's srt settings reuse `allowed_domains`, `allow_write`, `work_dirs`, `deny_home_dirs`, `deny_files` and `protected_paths`, plus `adapters/opencode/sandbox/extra.json` (OpenCode state dirs, provider hosts); the launcher adds `$PWD` as writable. TO VERIFY: the srt schema was written offline. |
 
 `ask` and `deny` always win over `allow`. `install.sh` checks the composed policy and stops with the offending rule. Editing a `policy.json` asks for your OK because it can loosen permissions.
 A rule for **everyone** (not just you) goes in `core/policy.json` with a test in `tests/test_guard.py`; see [CONTRIBUTING.md](../CONTRIBUTING.md).

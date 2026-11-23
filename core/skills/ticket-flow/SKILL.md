@@ -30,7 +30,7 @@ Call it at: 0a after my OK (`--session`, `--branch`), Gate 1 after my OK (`--ses
 ## Short route (low risk)
 Read the repo's `AGENTS.md` section "Risk tiers" and propose tier low when the change fits it (a style fix, a typo).
 I confirm in one line. Then skip exploration and planning, but still run `sub-review` and write the report with the same
-helper and path as `sub-review` (`python3 -I {{AI_SETUP}}/core/guard/review_report.py`, `<dev root>/reviews/<repo>/<branch>.md`).
+helper and path as `sub-review` (`python3 -I {{AI_SETUP}}/core/guard/review_report.py`, `<dev root>/reviews/<repo>/<branch>.md`; `header` keeps earlier rounds as `.r<N>.md`, then `log --stage 3` appends to `reviews.log`).
 `sub-tester` still runs, one test per criterion, as in the full flow.
 Any other tier, no confirmation, or a repo with no "Risk tiers" section: the full flow below.
 The 0a scope contract still applies in short form: allowlist and out of scope in one line, confirmed together with the tier,
@@ -71,7 +71,7 @@ Write `<dev root>/handoffs/<ticket>/plan.md` (never in the repo):
 - a **criteria map**: each criterion → the step(s) and test that cover it; a step with no criterion is extra scope: drop it, or list it under "extras" in the Gate 1 summary.
 
 **Plan critic.** Full route only. Before Gate 1, one `sub-review` (read-only, one round) attacks `plan.md` with a fixed question: what breaks, what is missing, what is extra?
-Its input is `plan.md`, `criteria.md` and the 0a contract (there is no diff yet); it returns its findings as its message and skips the report step (step 5), so nothing is written at the review report path the merge gate reads. Save the text yourself to `<dev root>/handoffs/<ticket>/plan-critic.md` if you want to keep it.
+Its input is `plan.md`, `criteria.md` and the 0a contract (there is no diff yet); it returns its findings as its message and skips the report step (step 5), so nothing is written at the review report path the merge gate reads. The orchestrator always saves that text to `<dev root>/handoffs/<ticket>/plan-critic.md` (the critic stays read-only and writes no file).
 Fix what it finds yourself, but only inside the 0a contract and `criteria.md`; a fix that would change either is unresolved.
 Gate 1 mentions the critic only for unresolved findings.
 
@@ -98,7 +98,7 @@ goal, the contract's allowlist (reject what falls outside), out of scope, how to
 
 ## 3 · Validate ‖ Review (parallel)
 - `leaf-verify` on the worktree → checks receipt.
-- `sub-review` on the diff against `plan.md` (and the `pr-review-ticket` skill if there is a ticket). It still compares against `plan.md`;
+- `sub-review` on the diff against `plan.md` (and the `pr-review-ticket` skill if there is a ticket). It still compares against `plan.md`; its brief gives the exact `log --stage 3` command so the round is logged with that stage;
   stage 4 re-reviews the committed change against `criteria.md`. The two reviews cover different angles: plan (stage 3) vs criteria (stage 4).
 - If something fails: back to the writer, fix and validate again. **At most 2 rounds**; if it still fails, stop at the gate.
 
@@ -115,9 +115,9 @@ After the OK: commit on the ticket branch or the one I name, push, PR (body from
 ## 4 · Post-PR re-review
 Once the PR exists (full or short route), run `sub-review` on the committed change against `criteria.md` (only slice K's criteria when it has `## Slices`).
 Write its report with `python3 -I {{AI_SETUP}}/core/guard/review_report.py` so the tree hash matches the commit.
-The report path is the same `<dev root>/reviews/<repo>/<branch>.md`: it overwrites the stage 3 report (intended; the merge gate reads the newest).
+The report path is the same `<dev root>/reviews/<repo>/<branch>.md`: it overwrites the stage 3 report (intended; the merge gate reads the newest), but `header` first keeps that one as `<branch>.r<N>.md`. The brief gives the exact command `python3 -I {{AI_SETUP}}/core/guard/review_report.py log --dir <worktree> --stage 4` to run once the report is written (the one thing the brief carries besides the three items below).
 - Short route (tier low): the same re-review applies against the 1-3 line `criteria.md`.
-- The brief carries only the commit, the path to `criteria.md` and the report path, plus "slice K" as a scope pointer when `criteria.md` has `## Slices`; no summary of what was built or what passed.
+- Apart from that command, the brief carries only the commit, the path to `criteria.md` and the report path, plus "slice K" as a scope pointer when `criteria.md` has `## Slices`; no summary of what was built or what passed.
 - Critical or Warning: stop and show it. I decide whether a fix commit goes in the same PR; nothing is fixed or pushed on its own.
   A fix commit in the same PR makes the report's Tree stale, so stage 4 re-runs on the new commit before posting.
   This is the one exception to "no intermediate commits": a stage 4 fix commit the user approves.
