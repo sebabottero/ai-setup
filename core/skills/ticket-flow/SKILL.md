@@ -22,6 +22,11 @@ After the PR: `4 Post-PR re-review` (`sub-review` on the commit vs `criteria.md`
   that path as the only working directory.
 - The ticket branch stays local until Gate 2. No intermediate commits: the policy asks for OK on every commit.
 
+## Run record
+`<dev root>/handoffs/<ticket>/run.json` is the journal of the run: session ids, branch, PR number, review reports and rounds (stage, verdict), start and end time. It is for reading afterwards: nothing resumes from it.
+Write it only with `python3 -I {{AI_SETUP}}/core/guard/run_json.py update <ticket> [--session ID] [--branch B] [--pr N] [--round STAGE:VERDICT[:REPORT]] [--report PATH] [--end]` (first call creates it; every call adds, never rewrites). `--session` is this session's id, the one in its `actions.log` lines; leave it out if you cannot read it.
+Call it at: 0a after my OK (`--session`, `--branch`), Gate 1 after my OK (`--session`), each stage 3 and stage 4 review (`--round 3:<verdict>:<report path>`, `--round 4:...`), the PR (`--pr N`) and the end of stage 4 (`--end`). The same on the short route. A failed call never stops the ticket: say so in the receipt.
+
 ## Short route (low risk)
 Read the repo's `AGENTS.md` section "Risk tiers" and propose tier low when the change fits it (a style fix, a typo).
 I confirm in one line. Then skip exploration and planning, but still run `sub-review` and write the report with the same

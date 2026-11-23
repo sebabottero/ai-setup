@@ -37,6 +37,12 @@ class Install(unittest.TestCase):
         self.assertEqual(hit[0]["matcher"], "Bash")
         self.assertTrue(os.path.exists(os.path.join(self.home, ".claude", "hooks", "action_trace.py")))
 
+    def test_ask_outcome_hook_is_registered_for_its_four_events(self):
+        hooks = self.load(".claude", "settings.json")["hooks"]
+        for event in ("PostToolUse", "PostToolUseFailure", "SessionEnd", "SessionStart"):
+            self.assertEqual(sum("ask_outcome.py" in h["command"] for g in hooks[event] for h in g["hooks"]), 1, event)
+        self.assertTrue(os.path.exists(os.path.join(self.home, ".claude", "hooks", "ask_outcome.py")))
+
     def test_claude(self):
         s = self.load(".claude", "settings.json")
         commands = [h["command"] for groups in s["hooks"].values() for g in groups for h in g["hooks"]]

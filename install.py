@@ -437,6 +437,8 @@ def install_claude(agents_md):
     drop_retired_hooks(settings)
     add_hook(settings, "PreToolUse", "Bash|mcp__.*", "policy_guard.py", 10)
     add_hook(settings, "PreToolUse", "Bash", "action_trace.py", 5)  # logs the commands a policy "trace" rule matches, for the receipt; no rules, no-op
+    for event, matcher in (("PostToolUse", "Bash|mcp__.*"), ("PostToolUseFailure", "Bash|mcp__.*"), ("SessionEnd", None), ("SessionStart", None)):
+        add_hook(settings, event, matcher, "ask_outcome.py", 5)  # records how a guard ask ended (approved / declined) in actions.log
     add_hook(settings, "UserPromptSubmit", None, "context_notice.py", 5)  # informational context-size notice
     add_hook(settings, "SessionStart", None, "tune_notice.py", 5)  # informational: /insights data is old, offer tune-setup
 
