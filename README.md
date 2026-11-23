@@ -15,8 +15,8 @@ With ai-setup:     agent runs `git push --force origin main`  → 🔴 "needs yo
 ![The guard on four commands an agent might run: git status is allowed, git push --force and rm -rf ask for your OK, reading an SSH key is denied](docs/assets/guard-demo.gif)
 
 ## Why use it
-- **Stop babysitting.** Reads run freely. `git push`, `rm -rf`, merges and secret reads need your OK, and secrets are a hard `deny`. You can leave the agent working without watching every command.
-- **One setup, three tools.** Write rules, skills and agents once; they install into Claude Code, OpenCode and Codex on every machine. Your private bits live in separate layers, not in a fork.
+- **Stop babysitting.** Reads run freely. `git push`, `rm -rf` and merges need your OK; reading secrets is blocked outright. You can leave the agent working without watching every command.
+- **One setup, three tools.** Write rules and skills once (agents too, for Claude Code and OpenCode); they install into Claude Code, OpenCode and Codex on every machine. Your private bits live in separate layers, not in a fork.
 - **Tickets, not chat.** From ticket to merge: one writer per ticket, a reviewer that did not write the code, a merge gate that needs its report, and you decide at the end.
 - **Know what it does and costs.** Local logs show how often the agent asked, how many review rounds a branch needed, and where tokens went. `coach` picks model and effort before you start.
 - **Private by design.** No telemetry. Everything stays on your machine.
@@ -52,10 +52,10 @@ Eight layers of a harness, with an honest status. `done` means the evidence exis
 | Knowledge | Handoffs, per-repo `AGENTS.md`, mistakes become rules | done | [`core/skills/session-handoff/SKILL.md`](core/skills/session-handoff/SKILL.md) |
 | Recovery | Backup of the setup; install backs up what it replaces | partial | [`backup.sh`](backup.sh) |
 
-**Measured, not promised.** From the author's logs (2026-11-23): 4 clean branches needed 1.75 review rounds to PASS on average, and 1528 of 11675 guard decisions were asks in 30 days. The commands to get your own numbers are in [Reference](docs/REFERENCE.md#measure-it).
+**Measured, not promised.** From the author's logs, a snapshot taken 2026-11-23 (re-running the commands gives newer numbers): 4 clean branches needed 1.75 review rounds to PASS on average, and 1528 of 11675 guard decisions were asks in 30 days. The commands to get your own numbers are in [Reference](docs/REFERENCE.md#measure-it).
 
 ## Is it for you?
-**Yes** if you use an agent on real repos and want pushes, deletes and secret reads to need your OK, switch between agent tools, work from tickets, or want to see and cut your token spend.
+**Yes** if you use an agent on real repos and want pushes and deletes to need your OK and secret reads blocked, switch between agent tools, work from tickets, or want to see and cut your token spend.
 **Probably not** if you only run short throwaway scripts, need Windows, or expect a security boundary from the guard alone.
 
 ## Limits
