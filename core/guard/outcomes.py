@@ -10,7 +10,7 @@ PostToolUseFailure when it failed), and SessionEnd / SessionStart carry `session
 `declined` is inferred (the tool never ran), not reported by Claude Code. Each outcome is one more actions.log line with the
 ask's session, risk, rule and command, and `approved` / `declined` in the "what" column. AI_SETUP_PENDING_DIR overrides
 ~/.ai-setup/pending ("off" disables)."""
-import json, os, re, time
+import hashlib, json, os, re, time
 
 STALE = 24 * 3600
 
@@ -99,3 +99,38 @@ def sweep(current_session, outcome="declined", now=None):
         data = _take(path) if stale else None
         if data:
             _record(data, outcome)
+
+
+def sessions_dir():
+    path = os.environ.get("AI_SETUP_SESSIONS_DIR") or os.path.expanduser("~/.ai-setup/sessions")
+    return None if path == "off" else path
+
+
+def _session_file(cwd):
+    base = sessions_dir()
+    if not base or not cwd:
+        return None
+    return os.path.join(base, hashlib.sha1(os.path.realpath(cwd).encode()).hexdigest()[:16])
+
+
+def remember_session(cwd, session):
+    """SessionStart: the session id of the newest session that started in this folder, for run_json.py --session auto."""
+    path = _session_file(cwd)
+    if not path or not session:
+        return
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(str(session))
+    except OSError:
+        pass
+
+
+def current_session(cwd):
+    """The id remember_session stored for this folder, or None."""
+    path = _session_file(cwd)
+    try:
+        with open(path) as f:
+            return f.read().strip() or None
+    except (OSError, TypeError):
+        return None

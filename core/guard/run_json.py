@@ -2,16 +2,17 @@
 """Run record of a ticket: <dev root>/handoffs/<ticket>/run.json. ticket-flow writes it at 0a and updates it at each gate.
 A light journal for reading afterwards; nothing resumes from it.
 
-  python3 -I run_json.py update <ticket> [--dev-root DIR] [--session ID] [--branch B] [--pr N] [--report PATH]
+  python3 -I run_json.py update <ticket> [--dev-root DIR] [--session ID|auto] [--branch B] [--pr N] [--report PATH]
                                          [--round STAGE:VERDICT[:REPORT]] [--end]
     creates the file on the first call (start time = now); every later call adds to it.
-    --session / --report  appended once (a repeated value is not duplicated)
+    --session / --report  appended once (a repeated value is not duplicated); `--session auto` is the id the SessionStart hook
+                          stored for the current folder (nothing is added, with a note, when there is none)
     --round               one review round: stage (3 or 4), verdict, report path; `n` counts the rounds of that stage
     --end                 sets the end time
   python3 -I run_json.py show <ticket> [--dev-root DIR]
 
 Fields: ticket, sessions[], branch, pr, reports[], rounds[{stage, n, verdict, report}], start, end (ISO times)."""
-import argparse, datetime, json, os, sys
+import argparse, datetime, json, os, sys, tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 
@@ -62,8 +63,8 @@ def update(dev_root, ticket, session=None, branch=None, pr=None, report=None, ro
     if end:
         run["end"] = now()
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w") as f:
+    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".run.", suffix=".tmp")
+    with os.fdopen(fd, "w") as f:
         json.dump(run, f, indent=2)
         f.write("\n")
     os.replace(tmp, path)
@@ -100,6 +101,11 @@ def main(argv=None):
             dev_root = layers.dev_root(guard.load())
         except Exception as exc:  # writing into the wrong folder is worse than not writing
             ap.error(f"cannot read the dev root from the policy ({exc}); pass --dev-root DIR")
+    if args.session == "auto":
+        import outcomes
+        args.session = outcomes.current_session(os.getcwd())
+        if not args.session:
+            print("note: no session id stored for this folder (the SessionStart hook writes it); session not recorded", file=sys.stderr)
     if args.command == "show":
         print(json.dumps(load(run_path(dev_root, args.ticket)), indent=2))
         return

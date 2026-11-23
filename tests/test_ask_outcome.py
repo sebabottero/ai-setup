@@ -51,9 +51,34 @@ class AskOutcome(unittest.TestCase):
     def test_a_failed_run_is_approved_but_a_refused_one_is_not(self):
         self.ask("t1"), self.ask("t2", command="git push origin dev"), self.ask("t3", command="git push origin x")
         self.post("PostToolUseFailure", tool_use_id="t1", error="exit code 1", is_interrupt=False)
-        self.post("PostToolUseFailure", tool_use_id="t2", error="The user doesn't want to proceed", is_interrupt=False)
+        self.post("PostToolUseFailure", tool_use_id="t2", error="The user doesn't want to proceed with this tool use. The tool use was rejected", is_interrupt=False)
         self.post("PostToolUseFailure", tool_use_id="t3", error="x", is_interrupt=True)
         self.assertEqual([w for _, w, _ in self.whats() if w != "asked"], ["approved"])
+
+    def test_shell_permission_denied_is_approved_the_harness_refusal_is_not(self):
+        for tid, error in (("a", "Exit code 126\nbash: ./deploy.sh: Permission denied"), ("b", "Permission for this tool use was denied."),
+                           ("c", "Permission to use Bash with command git push has been denied."), ("d", "Exit code 1\nThe user doesn't want to proceed")):
+            self.ask(tid, command=f"git push origin {tid}")
+            self.post("PostToolUseFailure", tool_use_id=tid, error=error, is_interrupt=False)
+        self.assertEqual([w[2][-1] for w in self.whats() if w[1] == "approved"], ["a", "d"])
+
+    def test_session_start_remembers_the_session_for_run_json_auto(self):
+        sessions = os.path.join(self.tmp, "sessions")
+        env = dict(self.env, AI_SETUP_SESSIONS_DIR=sessions)
+        folder = os.path.realpath(tempfile.mkdtemp())
+        self.run_py(HOOK, {"hook_event_name": "SessionStart", "session_id": "sess-9", "cwd": folder}, env=env)
+        dev = tempfile.mkdtemp()
+        def run(cwd):
+            return subprocess.run([sys.executable, "-I", RUN_JSON, "update", "T-1", "--dev-root", dev, "--session", "auto"],
+                                  capture_output=True, text=True, cwd=cwd, env=env, timeout=30)
+        self.assertEqual(run(folder).returncode, 0)
+        with open(os.path.join(dev, "handoffs", "T-1", "run.json")) as f:
+            self.assertEqual(json.load(f)["sessions"], ["sess-9"])
+        other = run(tempfile.mkdtemp())  # another folder: nothing stored, a note, no session added
+        self.assertEqual(other.returncode, 0)
+        self.assertIn("no session id", other.stderr)
+        with open(os.path.join(dev, "handoffs", "T-1", "run.json")) as f:
+            self.assertEqual(json.load(f)["sessions"], ["sess-9"])
 
     def test_an_ask_left_at_session_end_is_declined(self):
         self.ask("t1"), self.ask("t2", session="s2", command="git push origin dev")
