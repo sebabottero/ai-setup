@@ -3,15 +3,16 @@
 A light journal for reading afterwards; nothing resumes from it.
 
   python3 -I run_json.py update <ticket> [--dev-root DIR] [--session ID|auto] [--branch B] [--pr N] [--report PATH]
-                                         [--round STAGE:VERDICT[:REPORT]] [--end]
+                                         [--round STAGE:VERDICT[:REPORT]] [--cross-review on|off] [--end]
     creates the file on the first call (start time = now); every later call adds to it.
     --session / --report  appended once (a repeated value is not duplicated); `--session auto` is the id the SessionStart hook
                           stored for the current folder (nothing is added, with a note, when there is none)
     --round               one review round: stage (3 or 4), verdict, report path; `n` counts the rounds of that stage
+    --cross-review        whether the user opted in at Gate 1 to a second reviewer from another provider (default: off)
     --end                 sets the end time
   python3 -I run_json.py show <ticket> [--dev-root DIR]
 
-Fields: ticket, sessions[], branch, pr, reports[], rounds[{stage, n, verdict, report}], start, end (ISO times)."""
+Fields: ticket, sessions[], branch, pr, reports[], rounds[{stage, n, verdict, report}], cross_review (on|off), start, end (ISO times)."""
 import argparse, datetime, json, os, sys, tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -42,11 +43,11 @@ def load(path):
     return data if isinstance(data, dict) else None
 
 
-def update(dev_root, ticket, session=None, branch=None, pr=None, report=None, rounds=(), end=False):
+def update(dev_root, ticket, session=None, branch=None, pr=None, report=None, rounds=(), end=False, cross_review=None):
     """Create or extend the run record; returns it. Each of rounds is (stage, verdict, report_path_or_None)."""
     path = run_path(dev_root, ticket)
     run = load(path) or {"ticket": ticket, "sessions": [], "branch": None, "pr": None, "reports": [], "rounds": [],
-                         "start": now(), "end": None}
+                         "cross_review": "off", "start": now(), "end": None}
     if session and session not in run["sessions"]:
         run["sessions"].append(session)
     if branch:
@@ -60,6 +61,8 @@ def update(dev_root, ticket, session=None, branch=None, pr=None, report=None, ro
         run["rounds"].append({"stage": stage, "n": n, "verdict": verdict, "report": rpath})
         if rpath and rpath not in run["reports"]:
             run["reports"].append(rpath)
+    if cross_review:
+        run["cross_review"] = cross_review
     if end:
         run["end"] = now()
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -88,6 +91,7 @@ def main(argv=None):
     ap.add_argument("--pr", type=int)
     ap.add_argument("--report")
     ap.add_argument("--round", dest="rounds", type=parse_round, action="append", default=[])
+    ap.add_argument("--cross-review", choices=["on", "off"])
     ap.add_argument("--end", action="store_true")
     args = ap.parse_args(argv)
     try:
@@ -109,7 +113,7 @@ def main(argv=None):
     if args.command == "show":
         print(json.dumps(load(run_path(dev_root, args.ticket)), indent=2))
         return
-    run = update(dev_root, args.ticket, args.session, args.branch, args.pr, args.report, args.rounds, args.end)
+    run = update(dev_root, args.ticket, args.session, args.branch, args.pr, args.report, args.rounds, args.end, args.cross_review)
     print(run_path(dev_root, args.ticket))
 
 

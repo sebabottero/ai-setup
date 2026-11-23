@@ -24,8 +24,8 @@ After the PR: `4 Post-PR re-review` (`sub-review` on the commit vs `criteria.md`
 
 ## Run record
 `<dev root>/handoffs/<ticket>/run.json` is the journal of the run: session ids, branch, PR number, review reports and rounds (stage, verdict), start and end time. It is for reading afterwards: nothing resumes from it.
-Write it only with `python3 -I {{AI_SETUP}}/core/guard/run_json.py update <ticket> [--session ID] [--branch B] [--pr N] [--round STAGE:VERDICT[:REPORT]] [--report PATH] [--end]` (first call creates it; every call adds, never rewrites). Pass `--session auto`: it reads the session id the SessionStart hook stored for the current folder (with none stored it records nothing and says so).
-Call it at: 0a after my OK (`--session auto`, `--branch`), Gate 1 after my OK (`--session auto`), each stage 3 and stage 4 review (`--round 3:<verdict>:<report path>`, `--round 4:...`), the PR (`--pr N`) and the end of stage 4 (`--end`). The same on the short route. A failed call never stops the ticket: say so in the receipt.
+Write it only with `python3 -I {{AI_SETUP}}/core/guard/run_json.py update <ticket> [--session ID] [--branch B] [--pr N] [--round STAGE:VERDICT[:REPORT]] [--report PATH] [--cross-review on|off] [--end]` (first call creates it; every call adds, never rewrites). Pass `--session auto`: it reads the session id the SessionStart hook stored for the current folder (with none stored it records nothing and says so).
+Call it at: 0a after my OK (`--session auto`, `--branch`), Gate 1 after my OK (`--session auto`, and `--cross-review on|off` for my cross-provider choice), each stage 3 and stage 4 review (`--round 3:<verdict>:<report path>`, `--round 4:...`), the PR (`--pr N`) and the end of stage 4 (`--end`). The same on the short route. A failed call never stops the ticket: say so in the receipt.
 
 ## Short route (low risk)
 Read the repo's `AGENTS.md` section "Risk tiers" and propose tier low when the change fits it (a style fix, a typo).
@@ -84,6 +84,8 @@ Needs `<dev root>/handoffs/<ticket>/criteria.md` on both routes (short route: th
 A single message: plan summary (short and scannable) + **all** the questions together. Build nothing until the OK.
 It always carries one verdict line with your recommendation: `Single PR (~N lines, 1 topic)` or `Split into N: signals X, Y`. My OK at Gate 1 accepts it, with no separate question. The default is one slice per run; mention the alternative only when you recommend it. A slice waits for another to be merged only if it depends on its code.
 
+**Cross-provider review (opt-in, high tier only).** Read the ticket's tier from the repo's `AGENTS.md` "Risk tiers". Only when it is **high**, Gate 1 carries one more line, `Cross-provider review: off (default) - say "cross-review" to add a second reviewer from another model provider (Codex or OpenCode with a non-Claude model)`. Any other tier, or no tier: no line, no question, nothing changes. The default is off: it runs only if I answer "cross-review" at Gate 1; silence or a plain OK means off. Record the choice with `run_json.py update <ticket> --cross-review on|off`.
+
 ## 2 · Build
 One writer, the `sub-builder` agent (balanced model; you stay on the strong one for planning and decisions), in the worktree, with a brief made with the `session-handoff` skill:
 goal, the contract's allowlist (reject what falls outside), out of scope, how to verify.
@@ -103,6 +105,13 @@ goal, the contract's allowlist (reject what falls outside), out of scope, how to
 - If something fails: back to the writer, fix and validate again. **At most 2 rounds**; if it still fails, stop at the gate.
 - **Round cap (stages 3 and 4).** After each round, run `python3 -I {{AI_SETUP}}/core/guard/review_report.py rounds --dir <worktree> --stage <3|4>`.
   It prints `stage=N rounds=R open=O stop=yes|no`, read from `reviews.log`. If the branch still has `blocking` or `major` findings after 2 review rounds in one stage (`stop=yes`), do not start round 3: ask me at the next gate what to do, showing the open findings and their triage.
+
+**Cross-provider review (only when I opted in at Gate 1).** In the same turn as `sub-review`, in stage 3 and again in stage 4, the orchestrator launches a second reviewer on the same diff (the same range, plan or `criteria.md` as `sub-review`, with the same brief and no copy of its report). It is read-only: it edits nothing and writes no file, its final message is the report. Two ways, in the ticket's worktree, with a non-Claude model (`<provider>` = `codex` or `opencode`, the report name):
+- Codex: `codex exec --sandbox read-only "<prompt>"`, where the prompt is the text of `{{AI_SETUP}}/core/agents/sub-review-xprov.md` followed by the brief;
+- OpenCode: `opencode run --agent sub-review-xprov --model <non-claude provider/model> "<brief>"` (the installed agent has `edit: none` and read-only shell).
+These commands are not on the policy's allowlists: each one asks for my OK like any other command; nothing here widens the policy. If the tool is not installed or I decline, say so in the receipt and carry on with `sub-review` alone.
+The orchestrator saves that message as the second report: it runs `python3 -I {{AI_SETUP}}/core/guard/review_report.py header --dir <worktree> --reviewer <provider>` (first line = the path `<dev root>/reviews/<repo>/<branch>.<provider>.md`; then the header block, which it puts at the top) and writes the file with the Write tool. The merge gate's `<branch>.md` is not touched and no round is archived: `sub-review`'s report and the second one are both kept. Do not run `log` or `rounds` for it, and it does not count for the round cap. Pass the path to `run_json.py update <ticket> --report <path>`.
+At Gate 2 show both verdicts and both issue tables side by side; a `blocking` or `major` finding from either one stops like `sub-review`'s. Nothing is fixed on its own.
 
 ## ⛔ GATE 2: handover
 A single message with:

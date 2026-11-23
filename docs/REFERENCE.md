@@ -34,6 +34,7 @@ Missing: which environment fails? (default: local)
 - **Comment bodies.** `gh pr comment` / `gh issue comment <N> [--body-file -|-F -] <<'E'` with a quoted delimiter, the terminator `E` and nothing but whitespace after it is judged by its first line only: the body is text, so a line like `gh pr merge 3` in it does not trip the merge gate (the command still asks as a comment). Secret and protected-path checks still read the whole text. Any other shape (unquoted delimiter, `#N`, a carriage return or control character, extra text before or after, another command) is judged as before.
 - **OpenCode** uses a beta plugin API; our side is tested with a fake context, not the real OpenCode. **Codex** gets instructions and skills only.
 - **Review history.** `review_report.py header` copies an earlier non-empty report to `<branch>.r<N>.md` before the new one is written (the newest stays at `<branch>.md`, which the merge gate reads); running it twice without a new report adds no round. `review_report.py log --stage 3|4` appends one tab-separated line to `$DEV/logs/reviews.log` (time, repo, branch, round, stage, verdict, findings per severity, then triage counts `fix_now/defer/reject`; read from the severity and triage columns of the issues table, which `sub-review` writes as a fixed table: severity `blocking | major | minor | nit` · triage `fix_now | defer | reject` · one-line reason · file:line · problem · fix; old reports with `critical/warning/nit` are still read, and a table header row is never counted). `review_report.py rounds --stage 3|4` prints `stage=N rounds=R open=O stop=yes|no` from `reviews.log`: with `stop=yes` (2 rounds in the stage and `blocking`/`major` still open) `ticket-flow` does not start round 3 and asks at the next gate. `ai-audit` practice 1 counts reports in nested folders, one per branch, and reports earlier rounds apart.
+- **Cross-provider review (criterion 9).** For a ticket whose tier is high (repo `AGENTS.md` "Risk tiers"), Gate 1 offers one opt-in line; the default is off and the choice is stored in `run.json` as `cross_review` (`run_json.py update <ticket> --cross-review on|off`). When on, `ticket-flow` runs a second, read-only reviewer from another provider on the same diff in stages 3 and 4: `codex exec --sandbox read-only "<prompt>"` (prompt = `core/agents/sub-review-xprov.md` + the brief) or `opencode run --agent sub-review-xprov --model <non-claude provider/model> "<brief>"`; each asks for OK like any command not on the allowlists. The orchestrator saves its message at `<branch>.<provider>.md` using `review_report.py header --reviewer <provider>` (header says `Reviewer: <provider>`; nothing is archived and `<branch>.md`, the merge gate's report, is untouched). `ai-audit` reports such files apart (`+N cross-provider`), not as branch reports. `sub-review-xprov` is installed like every core agent, so it also appears as a Claude subagent; its description says not to use it there.
 - **No telemetry.** The guard keeps a local log (`~/.ai-setup/guard.log`: time, decision, rule; never the command). `AI_SETUP_GUARD_LOG=off` disables it.
 - **Action log for the receipt.** `$DEV/logs/actions.log` (`AI_SETUP_ACTIONS_LOG`, `off` disables) lists, per session, what ran
   outside the sandbox, what matched `log_commands` (local commits, installs) and every ask, with its risk. The command is kept
@@ -141,7 +142,7 @@ earlier that no layer produces any more. Rules you added by hand stay.
 | Path | What it is |
 |---|---|
 | `core/AGENTS.md` | Generic instructions: limits, way of working, tools |
-| `core/agents/` | `flow-ticket`, `sub-review`, `sub-builder`, `sub-tester`, `leaf-verify`, `meta-setup` |
+| `core/agents/` | `flow-ticket`, `sub-review`, `sub-review-xprov`, `sub-builder`, `sub-tester`, `leaf-verify`, `meta-setup` |
 | `core/skills/` | `ticket-flow`, `pr-review-ticket`, `session-handoff`, `repo-guardrails`, `validate`, `setup-commit`, `grillme`, `coach` |
 | `core/policy.json` | Permissions, single source |
 | `core/guard/` | Shared allow / ask / deny logic and the layer loader |
@@ -155,6 +156,7 @@ earlier that no layer produces any more. Rules you added by hand stay.
 |---|---|---|
 | `flow-ticket` | Orchestrates a whole ticket with the `ticket-flow` skill. Main session | only plans in `$DEV/handoffs` |
 | `sub-review` | Skeptical review against requirements | ❌ |
+| `sub-review-xprov` | Second reviewer for Codex or OpenCode with a non-Claude model (cross-provider, opt-in); returns its report as its message. Not for Claude Code | ❌ (edit none) |
 | `sub-builder` | The one writer: implements the approved plan and the docs in the worktree | the allowlist only |
 | `sub-tester` | Tests: a failing regression test (bug) or feature cases | tests only |
 | `leaf-verify` | Runs format, build and tests, and gives a receipt | ❌ |

@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Review reports: where sub-review writes them, what they say, and the git facts the merge gate compares them with.
 
-  python3 -I review_report.py header [--dir D] [--dev-root DIR] [--verdict PASS|FAIL|"NEEDS CHANGES"]
+  python3 -I review_report.py header [--dir D] [--dev-root DIR] [--verdict PASS|FAIL|"NEEDS CHANGES"] [--reviewer NAME]
     first line: the report path (<dev_root>/reviews/<repo>/<branch>.md); then the header block to paste at the top of it.
     An earlier non-empty report at that path is first copied to <branch>.r<N>.md (next N), so every round is kept and the
     newest stays at <branch>.md; running header again without a new report in between adds nothing.
+    --reviewer NAME (a second reviewer from another provider, e.g. codex): the path is <branch>.<NAME>.md and the header says
+    `Reviewer: NAME`; nothing is archived and <branch>.md (the merge gate's report) is not touched. The extra report is
+    overwritten by the next run of the same reviewer; ai-audit does not count it as a branch report.
   python3 -I review_report.py log --stage 3|4 [--dir D] [--dev-root DIR]
     appends one line to <dev_root>/logs/reviews.log (tab separated: time, repo, branch, round, stage, verdict, findings
     per severity, triage counts) from the report just written. Severities are read from the issues table's severity column:
@@ -35,8 +38,16 @@ def repo_name(directory):
     return os.path.basename(os.path.dirname(common.rstrip("/"))) if common else None
 
 
-def report_path(dev_root, repo, branch):
-    return os.path.join(os.path.expanduser(dev_root), "reviews", repo, branch + ".md")
+def check_reviewer(name):
+    """A reviewer name is one lowercase word; `r<N>` is refused because <branch>.r<N>.md is an archived round."""
+    if not re.fullmatch(r"[a-z][a-z0-9-]*", name or "") or re.fullmatch(r"r\d+", name):
+        raise ValueError(f"reviewer must be a lowercase word like codex or opencode (not r<N>): {name!r}")
+    return name
+
+
+def report_path(dev_root, repo, branch, reviewer=""):
+    suffix = "." + check_reviewer(reviewer) if reviewer else ""
+    return os.path.join(os.path.expanduser(dev_root), "reviews", repo, branch + suffix + ".md")
 
 
 def worktree_tree(directory):
@@ -172,18 +183,31 @@ def stage_rounds(directory, dev_root, stage):
     return f"stage={stage} rounds={len(seen)} open={open_} stop={'yes' if len(seen) >= 2 and open_ else 'no'}"
 
 
-def header(directory, dev_root, verdict=""):
+def is_extra_report(path):
+    """True for a second reviewer's report (<branch>.<name>.md whose `Reviewer:` is that name), not a branch report."""
+    reviewer = ""
+    for line in read(path).splitlines():
+        m = re.match(r"\s*(?:[-*+]\s+)?[*_]*Reviewer[*_]*\s*:[*_\s]*(.*?)[*_\s]*$", line, re.I)
+        if m:
+            reviewer = m.group(1).lower()
+            break
+    return bool(reviewer) and reviewer != "sub-review" and path.endswith("." + reviewer + ".md")
+
+
+def header(directory, dev_root, verdict="", reviewer=""):
     branch = git(directory, "symbolic-ref", "-q", "--short", "HEAD") or "HEAD"
     repo = repo_name(directory) or "?"
-    archive(report_path(dev_root, repo, branch))
+    path = report_path(dev_root, repo, branch, reviewer)
+    if not reviewer:
+        archive(path)
     tree = worktree_tree(directory)
     if not tree:
         print("warning: could not compute the tree of the working tree; the report will match by commit only", file=sys.stderr)
-    lines = [report_path(dev_root, repo, branch), "", f"Repo: {repo}", f"Branch: {branch}",
+    lines = [path, "", f"Repo: {repo}", f"Branch: {branch}",
              f"Commit: {git(directory, 'rev-parse', 'HEAD') or '?'}", f"Tree: {tree or ''}"]
     if verdict:
         lines.append(f"Verdict: {verdict}")
-    lines += ["Reviewer: sub-review", f"Date: {datetime.datetime.now().isoformat(timespec='seconds')}"]
+    lines += [f"Reviewer: {reviewer or 'sub-review'}", f"Date: {datetime.datetime.now().isoformat(timespec='seconds')}"]
     return "\n".join(lines)
 
 
@@ -194,6 +218,7 @@ def main():
     ap.add_argument("--dir", default=".")
     ap.add_argument("--dev-root")
     ap.add_argument("--verdict", default="", choices=["", "PASS", "FAIL", "NEEDS CHANGES"])
+    ap.add_argument("--reviewer", default="")
     args = ap.parse_args()
     dev_root = args.dev_root
     if not dev_root:
@@ -202,6 +227,13 @@ def main():
             dev_root = layers.dev_root(guard.load())
         except Exception:
             dev_root = "~"
+    if args.reviewer and args.command != "header":
+        ap.error("--reviewer only applies to header")
+    if args.reviewer:
+        try:
+            check_reviewer(args.reviewer)
+        except ValueError as exc:
+            ap.error(str(exc))
     if args.command in ("log", "rounds") and not args.stage:
         ap.error(f"{args.command} needs --stage 3|4")
     if args.command == "rounds":
@@ -210,7 +242,7 @@ def main():
     if args.command == "log":
         print(log(args.dir, dev_root, args.stage))
         return
-    print(header(args.dir, dev_root, args.verdict))
+    print(header(args.dir, dev_root, args.verdict, args.reviewer))
 
 
 if __name__ == "__main__":

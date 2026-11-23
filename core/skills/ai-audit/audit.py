@@ -109,9 +109,12 @@ def review(ctx):
                 reviewed += found
     # nested folders too (reviews/<repo>/ai/*.md); one report per branch (the newest), earlier rounds <branch>.rN.md apart
     files = [f for n in ctx["names"] for f in glob.glob(os.path.join(ctx["dev_root"], "reviews", n, "**", "*.md"), recursive=True)]
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))), "guard"))
+    import review_report
     earlier = sum(1 for f in files if re.search(r"\.r\d+\.md$", f))
-    reports = len(files) - earlier
-    extra = f" (+{earlier} earlier rounds)" if earlier else ""
+    cross = sum(1 for f in files if not re.search(r"\.r\d+\.md$", f) and review_report.is_extra_report(f))  # second provider
+    reports = len(files) - earlier - cross
+    extra = (f" (+{earlier} earlier rounds)" if earlier else "") + (f" (+{cross} cross-provider)" if cross else "")
     if not sessions:
         return "n/a", f"no session logs for '{ctx['names'][0]}' under {pdir}; {reports} review reports{extra}"
     return (str(score_from_share(reviewed / sessions)),
