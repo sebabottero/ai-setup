@@ -377,8 +377,11 @@ class Allows(unittest.TestCase):
             self.assertEqual(decision(c), "allow", c)
 
     def test_a_folder_named_build_in_another_repo(self):
-        self.assertEqual(decision("echo x > build/out.txt", cwd="/Users/x/work/repo"), "allow")
-        self.assertEqual(decision("echo x > build/out.txt"), "ask")  # same command with cwd in ai-setup
+        # the guard also looks for the setup folder's name in the command text, so pin the checkout to a fixed
+        # path: the result must not depend on where (or under what name) this clone lives
+        with mock.patch.object(guard, "ROOT", "/opt/ai-setup"):
+            self.assertEqual(decision("echo x > build/out.txt", cwd="/Users/x/work/repo"), "allow")
+            self.assertEqual(decision("echo x > build/out.txt", cwd="/opt/ai-setup"), "ask")  # same command with cwd in ai-setup
 
     def test_tests_folder_is_not_protected(self):
         self.assertEqual(decision("echo x > tests/out.txt"), "allow")  # edited freely, listed in the receipt
