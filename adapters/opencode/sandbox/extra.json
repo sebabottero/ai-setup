@@ -1,0 +1,18 @@
+{
+  "_comment": "TO VERIFY. What OpenCode needs on top of policy.json when srt wraps the whole process: its own state dirs (writable) and model-provider hosts. Edit the list for the providers you use, then re-run install.py --opencode-sandbox.",
+  "state_dirs": [
+    "~/.local/share/opencode",
+    "~/.config/opencode",
+    "~/.cache/opencode",
+    "~/.local/state/opencode"
+  ],
+  "extra_domains": [
+    "opencode.ai",
+    "*.opencode.ai",
+    "models.dev",
+    "api.anthropic.com",
+    "api.openai.com",
+    "generativelanguage.googleapis.com",
+    "openrouter.ai"
+  ]
+}

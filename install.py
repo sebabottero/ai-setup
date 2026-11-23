@@ -12,10 +12,11 @@ Edit a layer or adapters/, then run ./install.sh again. Anything this script rep
 ~/.ai-setup-backups/<timestamp>/ first.
 Usage: ./install.sh [--dry-run] [--tools claude,opencode,codex] [--home DIR]
                     [--only core,<layer> | --with <layer> | --uninstall <layer>]
+                    [--opencode-sandbox]   (opt-in: srt settings + launcher for OpenCode, built from policy.json)
                     [--layers-dir DIR]   (folder with more layers, e.g. a private repo; remembered in the profile)
 The chosen layers are remembered in ~/.ai-setup-profile; with no flag the last choice is repeated (first time: all).
 """
-import argparse, datetime, json, os, re, shutil, subprocess, sys
+import argparse, datetime, json, os, re, shlex, shutil, subprocess, sys
 
 ROOT = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(ROOT, "core", "guard"))
@@ -487,6 +488,36 @@ def opencode_rules(pol):
     return rules
 
 
+def opencode_sandbox_settings(pol):
+    """srt (sandbox-runtime) settings from the same policy data as Claude's sandbox (claude_lists). TO VERIFY offline:
+    the key names follow srt's documented network / filesystem shape and were not checked against the installed srt."""
+    sb = pol.get("sandbox", {})
+    extra = read_json(os.path.join(ADAPTERS, "opencode", "sandbox", "extra.json"))  # OpenCode's own needs: state dirs, provider hosts
+    paths = lambda items: [expand(i) for i in items]
+    # the project folder is added by the launcher at launch ($PWD), so it is not listed here
+    return {
+        "network": {"allowedDomains": sb.get("allowed_domains", []) + extra.get("extra_domains", []), "deniedDomains": []},
+        "filesystem": {
+            "denyRead": paths(pol.get("deny_home_dirs", []) + sandbox_paths(pol)),
+            "allowWrite": paths(sb.get("allow_write", []) + pol.get("work_dirs", []) + extra.get("state_dirs", [])),
+            "denyWrite": protected_paths(pol),
+        },
+    }
+
+
+def install_opencode_sandbox(pol):
+    """Opt-in (--opencode-sandbox): write the srt settings and an `opencode-sandboxed` launcher. Nothing is installed or run."""
+    base = os.path.join(HOME, ".ai-setup")
+    settings = os.path.join(base, "opencode-sandbox.json")
+    write(settings, json.dumps(opencode_sandbox_settings(pol), indent=2, ensure_ascii=False) + "\n")
+    launcher = os.path.join(base, "bin", "opencode-sandboxed")
+    with open(os.path.join(ADAPTERS, "opencode", "sandbox", "opencode-sandboxed")) as f:
+        write(launcher, f.read().replace("{{SETTINGS}}", shlex.quote(settings)))
+    if not args.dry_run:
+        os.chmod(launcher, 0o755)
+    log(f"opencode sandbox: run {launcher} instead of opencode (needs srt; settings marked to-verify in the launcher)")
+
+
 def install_opencode(agents_md):
     base = os.path.join(HOME, ".config", "opencode")
     adopt_unmanaged(os.path.join(base, "skills"))
@@ -546,6 +577,10 @@ def install_opencode(agents_md):
     MANAGED["opencode"] = known
     if json.dumps(config, sort_keys=True) != before:
         write(path, json.dumps(config, indent=2, ensure_ascii=False) + "\n")
+    if args.opencode_sandbox:
+        install_opencode_sandbox(pol)
+    else:
+        print("  (opt-in OS sandbox for OpenCode: ./install.sh --opencode-sandbox)")
 
 
 # ---------------------------------------------------------------- Codex (instructions + skills only)
@@ -742,6 +777,8 @@ def main():
     p.add_argument("--uninstall", help="comma list of layers to remove from the tools (with a backup)")
     p.add_argument("--layers-dir", action="append", default=[], metavar="DIR",
                    help="folder that holds more layers (e.g. a private repo); remembered in the profile, repeatable")
+    p.add_argument("--opencode-sandbox", action="store_true",
+                   help="also write an srt (sandbox-runtime) settings file and an opencode-sandboxed launcher in ~/.ai-setup (opt-in)")
     p.add_argument("--build", default=BUILD, help="where to render the composed AGENTS.md and policy.json (for testing)")
     args = p.parse_args()
     if not layerlib.valid_name(args.layer):
@@ -758,6 +795,8 @@ def main():
         run_uninstall(tools)
         print("\ndone." + (" (nothing changed: this was a dry run)" if args.dry_run else ""))
         return
+    if args.opencode_sandbox and "opencode" not in tools:
+        print("warning: --opencode-sandbox only applies when opencode is installed (add it with --tools); nothing is written.", file=sys.stderr)
     SELECTED[:] = resolve_layers()
     problems = lint_policy(policy())
     if problems:

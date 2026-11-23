@@ -12,7 +12,7 @@ Five choices that shape ai-setup, and what each one costs.
 **Decision:** the guard reads shell text with regexes and says so. The gaps it cannot see (base64, commands built inside a script) are listed in `tests/test_guard.py` (`KnownGaps`) as expected failures.
 
 - **Why:** an honest limit beats a claim of safety. The real wall is the OS sandbox Claude gets from the same `policy.json`.
-- **Cost:** in OpenCode there is no OS wall, only rules and the guard. The README table says so.
+- **Cost:** in OpenCode there is no OS wall by default, only rules and the guard; `install.py --opencode-sandbox` opts in to an `srt` wall built from the same policy (settings still to verify against srt). The README table says so.
 
 ## 3. One writer per ticket
 **Decision:** `flow-ticket` plans on the strong model. A single `sub-builder` writes, inside its own git worktree and an allowlist. Review, tests and checks are read-only and run in parallel.
