@@ -1,6 +1,6 @@
 ---
 name: ai-audit
-description: Score a repo against 8 generic practices (independent review, tests tied to intent, enforced rules, static checks, shared knowledge, small changes, CI, human gate) and list AGENTS.md rules whose `until` date has passed. Read-only. Use for "audita este repo", "cómo vamos con las prácticas de IA", "revisa las reglas vencidas", "ai-audit", "audit this repo", "which rules expired", or as the monthly check.
+description: Score a repo against 8 generic practices (independent review, tests tied to intent, enforced rules, static checks, shared knowledge, small changes, CI, human gate) and list AGENTS.md rules whose `until` date has passed. Read-only. Use for "audita este repo", "cómo vamos con las prácticas de IA", "revisa las reglas vencidas", "ai-audit", "audit this repo", "which rules expired", or as the monthly check. Also lists stale folders in the scratch zone.
 ---
 
 # ai-audit
@@ -42,6 +42,27 @@ Columns: `#`, `Practice`, `Score`, `Evidence`. The same 8 practices always appea
 - Rules past their date are listed under the table as `expired: test it or delete it - AGENTS.md:<line>: <rule>`. Turn each one into a test (`E:` rule) or delete it.
 - A malformed date (`until 2026-13-45`) is listed as `invalid date: AGENTS.md:<line>: <rule>` and counted in the evidence, never ignored.
 - Session logs are matched by the repo folder name as the tail of the project folder; in a git worktree the main repo's name is matched too.
+
+## Old scratch check (read-only)
+
+Besides the scorecard, look for stale folders in `{{DEV}}/_scratch/`. Threshold: **14 days** without changes (change the number here to tune it).
+
+```
+find {{DEV}}/_scratch -mindepth 1 -maxdepth 1 -type d -mtime +14
+find {{DEV}}/_scratch/<topic> -type f -mtime -14 -print -quit
+```
+
+Age means the newest file inside, not the folder's own mtime: if the second command prints anything, the folder is active and is not stale.
+
+- Skip `reviews/` and `handoffs/` (deliverables) and never list the `_scratch/` root.
+- For each folder show: folder, age in days, size (`du -sh <path>`), has `.git`? (`test -d <path>/.git`).
+- Table of at most 5 rows. With more, a 3-line summary and `+N more`.
+- For folders with `.git`, same warning as the `setup-commit` cleanup: `git -C <path> status --short` (dirty) and `git -C <path> log @{u}..` (unpushed; no upstream = unpushed). Show the warning in the table and leave dirty or unpushed clones out of the block.
+- Read-only: this check never deletes. Print one copyable block with literal paths (no variables, no `$(...)`, no globs):
+  ```
+  ! rm -rf {{DEV}}/_scratch/<topic>
+  ```
+- No stale folders: one line, `Old scratch: none`.
 
 ## After the audit
 
