@@ -53,23 +53,43 @@ class Install(unittest.TestCase):
         self.assertNotIn("PostToolUseFailure", [e for e, gs in hooks.items() if any("scoped_edit.py" in h["command"] for g in gs for h in g["hooks"])])
         self.assertTrue(os.path.exists(os.path.join(self.home, ".claude", "hooks", "scoped_edit.py")))
 
-    def test_every_protected_path_outside_ticket_worktrees_keeps_its_native_ask_rule(self):
+    def test_every_protected_path_keeps_its_native_ask_rule(self):
         sys.path.insert(0, ROOT)
         import install
         s = self.load(".claude", "settings.json")
         pol = install.layerlib.compose_policy(ROOT, install.layerlib.present(ROOT))
-        asks = s["permissions"]["ask"]
         with mock.patch.object(install, "HOME", self.home):
             paths = install.protected_paths(pol)
         self.assertTrue(paths)
         for p in paths:
-            if not p.startswith(os.path.join(self.home, "worktrees") + "/"):  # the test home has no ticket worktree for ROOT
-                self.assertIn(f"Edit(/{p})", asks, p)
+            self.assertIn(f"Edit(/{p})", s["permissions"]["ask"], p)
         self.assertIn(f"{ROOT}/core/guard/**", s["sandbox"]["filesystem"]["denyWrite"])  # the sandbox wall is untouched
 
-    def test_scope_helper_runs_outside_the_sandbox_only_by_its_exact_path(self):
+    def test_installing_from_a_ticket_worktree_keeps_every_native_ask_rule_too(self):
+        sys.path.insert(0, ROOT)
+        import install
+        pol = install.layerlib.compose_policy(ROOT, install.layerlib.present(ROOT))
+        for root in (ROOT, os.path.join(self.home, "Dev", "worktrees", "ai-setup", "t9")):  # the main checkout, then a worktree
+            with mock.patch.object(install, "HOME", self.home), mock.patch.object(install, "ROOT", root):
+                paths = install.protected_paths(pol)
+                asks = install.claude_lists(pol)[("permissions", "ask")]
+            self.assertGreaterEqual(len(paths), 10)
+            self.assertEqual([p for p in paths if f"Edit(/{p})" not in asks], [], root)
+
+    def test_installing_from_a_ticket_worktree_is_reported_loudly(self):
+        sys.path.insert(0, ROOT)
+        import install
+        pol = {"dev_root": "~/Dev"}
+        with mock.patch.object(install, "HOME", self.home):
+            for root, bad in ((os.path.join(self.home, "Dev", "worktrees", "ai-setup", "t9"), True),
+                              (os.path.join(self.home, "Dev", "repos", "ai-setup"), False)):
+                with mock.patch.object(install, "ROOT", root):
+                    self.assertEqual(bool(install.worktree_install_problem(pol)), bool(bad), root)
+
+    def test_scope_helper_is_not_excluded_from_the_sandbox(self):
+        # the owner runs `scope.py add` outside the sandbox (a `! ` line); no pattern may let the agent do it
         excluded = self.load(".claude", "settings.json")["sandbox"]["excludedCommands"]
-        self.assertIn(f"python3 -I {ROOT}/core/guard/scope.py *", excluded)
+        self.assertEqual([e for e in excluded if "scope.py" in e], [])
 
     def test_claude(self):
         s = self.load(".claude", "settings.json")
@@ -145,21 +165,7 @@ class RetiredHooks(unittest.TestCase):
             self.assertEqual(f.read(), first)
 
 
-class NativeRulesNarrowed(unittest.TestCase):
-    """Variant E: a protected path inside <dev root>/worktrees loses its native ask rule (the hook asks there); all others keep it."""
-    def test_only_paths_under_the_worktrees_folder_are_dropped(self):
-        sys.path.insert(0, ROOT)
-        import install
-        pol = {"dev_root": "/dev", "protected_paths": ["/main/ai-setup/core/guard/*", "/dev/worktrees/ai-setup/t1/install.py",
-                                                       "/dev/worktrees-old/x.py", "/dev/repos/ai-setup/install.py",
-                                                       "~/.config/opencode/opencode.json"]}
-        with mock.patch.object(install, "HOME", "/home/x"):
-            kept = install.native_ask_paths(pol)
-            expected = [p for p in install.protected_paths(pol) if p != "/dev/worktrees/ai-setup/t1/install.py"]
-        self.assertEqual(kept, expected)
-        self.assertIn("/home/x/.config/opencode/opencode.json", kept)
-        self.assertEqual(len(kept), 4)
-
+class ScopedEditSelfCheck(unittest.TestCase):
     def test_the_scoped_edit_hook_passes_the_install_self_check(self):
         sys.path.insert(0, ROOT)
         import install

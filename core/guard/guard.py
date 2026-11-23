@@ -41,7 +41,15 @@ TEA_READ_ONLY = {"list", "ls", "view"}
 INNER = re.compile(r"""\b(?:ba|z)?sh\s+(?:-[A-Za-z]+\s+)*?-[A-Za-z]*c[A-Za-z]*\s+(["'])(.*?)(?<!\\)\1|\beval\s+(["'])(.*?)(?<!\\)\3""", re.S)
 MAX_DEPTH = 3
 PIPE_TO_SHELL = re.compile(r"\|\s*(?:sudo\s+)?(?:ba|z)?sh(?:\s+-s)?\s*(?:$|[;&|)])")  # curl ... | sh: runs text nobody read
-SCOPE_WRITE = re.compile(r"\bscope\.py\b(?:\s+-\S+)*\s+(?:add|clear)\b")  # scope.py (scoped approvals) writing a ticket's scope file
+SCOPE_PY = re.compile(r"scope\.py")  # core/guard/scope.py (scoped approvals); looked for after the quotes and backslashes are gone
+SCOPE_SHOW = re.compile(r"\s*(?:python3?\s+(?:-\S+\s+)*)?[\w./~-]*scope\.py\s+show\s+[\w./~-]+\s*")  # the only form that runs unasked: read-only, nothing else on the line
+
+
+def scope_command(command):
+    """True for any command line that runs scope.py in a way other than one plain `scope.py show <worktree>`: it may write the
+    scope file (add, clear), so quoted, escaped, substituted and chained forms all count (ad""d, a\\dd, $A, $(echo add), show x && ...)."""
+    plain = re.sub(r"""['"\\]""", "", command)
+    return bool(SCOPE_PY.search(plain)) and not SCOPE_SHOW.fullmatch(plain)
 INLINE_CODE = re.compile(r"\b(?:python3?|node|ruby|perl)\s+(?:(?:-\S+\s+)*-[ce]\b|-?\s*<<)")  # -c / -e, or a heredoc
 RUNS_COMMANDS = re.compile(r"subprocess|\bos\.(?:system|popen|exec\w*|spawn\w*)|child_process|execSync|spawnSync|\bsystem\(|\bpopen\(|\bexec\(")
 # risk shown at the start of every ask / deny reason, by the rule that decided; a rule not listed is medium.
@@ -1012,8 +1020,8 @@ def bash(command, policy, cwd=None, depth=0, start=None):
         found.append(("ask", "inline code that starts other commands hides what runs: confirm", "inline-code"))
     if re.search(r"\bgit\b.*\s-c\s+alias\.", command):
         found.append(("ask", "an inline git alias hides the real command: confirm", "git-alias"))
-    if SCOPE_WRITE.search(command):
-        found.append(("ask", "scope.py changes which protected paths of a ticket worktree ask once: confirm the paths", "scope-write"))
+    if scope_command(command):
+        found.append(("ask", "scope.py decides which protected paths of a ticket worktree ask only once (only `scope.py show <worktree>` runs unasked): confirm the paths", "scope-write"))
     written = review_write(command, policy)
     if written:
         found.append(("ask", f"'{written}' is a review report: only sub-review writes those, confirm", "review-report-write"))

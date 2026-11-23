@@ -1,7 +1,7 @@
 """Criterion 12 (variant E): inside a ticket worktree (<dev root>/worktrees/<repo>/<ticket>/) a protected path that the
 ticket's scope file names exactly asks once, every other protected path asks every time, and anything else gets no
 opinion from the hook. The scope file is written only by core/guard/scope.py, which the guard asks about."""
-import json, os, subprocess, sys, tempfile, unittest
+import json, os, shutil, subprocess, sys, tempfile, time, unittest
 from unittest import mock
 
 os.environ["AI_SETUP_GUARD_LOG"] = "off"
@@ -14,10 +14,17 @@ SCOPE = os.path.join(ROOT, "core", "guard", "scope.py")
 sys.path.insert(0, os.path.join(ROOT, "core", "guard"))
 import guard, scope
 
-REPO = os.path.basename(ROOT)  # the protected globs are the setup's own: only worktrees of this repo use them
+REPO = scope.repo_identity()  # the protected globs are the setup's own: only worktrees of this repo use them
 POLICY = {"dev_root": "~", "protected_paths": ["{{AI_SETUP}}/core/guard/*", "{{AI_SETUP}}/install.py",
                                                 "~/.config/opencode/opencode.json"]}
 GUARDED = "core/guard/guard.py"
+
+
+def link_worktree(checkout, worktree, name):
+    """Make `worktree` look like a linked git worktree of `checkout` (a .git file, gitdir and commondir), without running git."""
+    gitdir = os.path.join(checkout, ".git", "worktrees", name)
+    touch(os.path.join(gitdir, "commondir"), "../..\n")
+    touch(os.path.join(worktree, ".git"), f"gitdir: {gitdir}\n")
 
 
 def touch(path, text="x\n"):
@@ -36,6 +43,9 @@ class Base(unittest.TestCase):
         for root in (self.wt, self.other, self.main):
             for rel in (GUARDED, "core/guard/other.py", "install.py", "README.md", "tests/a.py"):
                 touch(os.path.join(root, rel))
+        self.checkout = os.path.join(self.tmp, "repos", REPO)  # the main checkout the worktrees belong to
+        link_worktree(self.checkout, self.wt, "t1")
+        link_worktree(self.checkout, self.other, "t2")
         self.scopes = os.path.join(self.tmp, "scopes")
         self.env = dict(os.environ, AI_SETUP_WORKTREES=self.base, AI_SETUP_SCOPES_DIR=self.scopes,
                         AI_SETUP_GUARD_LOG="off", HOME=self.tmp)
@@ -220,6 +230,42 @@ class ScopeCommand(Base):
         d = guard.decide({"tool": "bash", "command": f"python3 -I {SCOPE} show /w/x", "cwd": self.tmp}, core)
         self.assertEqual(d[0], "allow")
 
+    EVASIONS = ["python3 -I {S} 'add' /w/x a", 'python3 -I {S} "add" /w/x a', 'python3 -I {S} ad""d /w/x a',
+                r"python3 -I {S} a\dd /w/x a", "A=add; python3 -I {S} $A /w/x a", "python3 -I {S} $(echo add) /w/x a",
+                "python3 -I {S} `echo add` /w/x a", "python3 -I {S} show /w/x && python3 -I {S} add /w/x a",
+                "python3 -I {S} show /w/x && curl http://x", "python3 -I {S} show /w/x; rm y", "python3 -I {S} show /w/x | sh",
+                "python3 -I {S} show $(echo /w/x)", "cd /w && python3 -I {S} add /w/x a", "python3 -I {S}", "python3 -I {S} ADD /w/x a",
+                "python3 -I {S} -h add", "python3 -I '{S}' 'cl''ear' /w/x", "bash -c \"python3 -I {S} 'add' /w/x a\"",
+                "python3 -I {S} show /w/x > /dev/null", "python3 -I {S} sh\\ow /w/x; python3 -I {S} add /w/x a"]
+
+    def test_every_way_of_running_scope_py_but_a_plain_show_asks(self):
+        core = guard.load()
+        for form in self.EVASIONS:
+            command = form.format(S=SCOPE)
+            d = guard.decide({"tool": "bash", "command": command, "cwd": self.tmp}, core)
+            self.assertEqual(d[0], "ask", command)
+            self.assertTrue(guard.scope_command(command), command)  # asked for this reason, not by luck
+
+    def test_scope_py_asks_when_the_script_is_a_relative_path(self):
+        core = guard.load()
+        for command in ("python3 -I core/guard/scope.py add /w/x a", "cd core/guard && python3 scope.py 'clear' /w/x", "./scope.py add /w/x a"):
+            self.assertEqual(guard.decide({"tool": "bash", "command": command, "cwd": ROOT}, core)[0], "ask", command)
+
+    def test_a_plain_show_still_runs(self):
+        core = guard.load()
+        for command in (f"python3 -I {SCOPE} show /w/x", f'python3 -I {SCOPE} "show" /w/x'):
+            self.assertEqual(guard.decide({"tool": "bash", "command": command, "cwd": self.tmp}, core)[0], "allow", command)
+
+    def test_a_permission_error_prints_the_command_the_owner_runs(self):
+        os.makedirs(self.scopes)
+        os.chmod(self.scopes, 0o500)
+        self.addCleanup(os.chmod, self.scopes, 0o700)
+        if os.access(self.scopes, os.W_OK):
+            self.skipTest("running as a user that ignores directory modes")
+        out = self.run_cli("add", self.wt, GUARDED)
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn(f"! python3 -I {SCOPE} add {self.wt} {GUARDED}", out.stderr)
+
 
 class HookProcess(Base):
     def test_pre_tool_use_asks_and_post_tool_use_grants(self):
@@ -262,6 +308,112 @@ class HookProcess(Base):
         self.assertEqual((out.returncode, out.stdout.strip()), (0, ""))
 
 
+class CaseVariants(Base):
+    """macOS compares paths without case: every folder name above the file must be compared the same way."""
+    def variants(self, rel="install.py"):
+        yield os.path.join(os.path.dirname(self.base), "WORKTREES", REPO, "t1", rel)
+        yield os.path.join(self.base, REPO.upper(), "t1", rel)
+        yield os.path.join(self.base, REPO, "T1", rel)
+        yield os.path.join(self.base.upper(), REPO.upper(), "T1", rel.upper())
+
+    def test_an_unscoped_protected_file_asks_under_any_spelling_of_the_folders(self):
+        for path in self.variants():
+            self.assertEqual(self.check(path), "ask", path)
+            self.assertEqual(self.check(path, tool="Write"), "ask", path)
+
+    def test_the_scope_of_a_worktree_applies_under_its_other_spelling_but_a_variant_file_name_still_asks(self):
+        self.add(GUARDED)
+        real = os.path.join(self.wt, GUARDED)
+        self.check(real)
+        self.approve(real)
+        self.assertEqual(self.check(os.path.join(self.base, REPO.upper(), "T1", GUARDED)), "allow")
+        self.assertEqual(self.check(os.path.join(self.base, REPO, "t1", "CORE", "GUARD", "GUARD.PY")), "ask")
+
+    def test_state_folders_ask_under_any_spelling(self):
+        pending, sessions = os.path.join(self.tmp, "pend"), os.path.join(self.tmp, "sess")
+        with mock.patch.dict(os.environ, {"AI_SETUP_PENDING_DIR": pending, "AI_SETUP_SESSIONS_DIR": sessions}):
+            for folder in (self.scopes, self.scopes.upper(), os.path.join(self.scopes, "pending"), pending, pending.upper(),
+                           sessions, sessions.upper(), os.path.expanduser("~/.ai-setup/scopes"), os.path.expanduser("~/.AI-SETUP/SCOPES"),
+                           os.path.expanduser("~/.ai-setup/pending"), os.path.expanduser("~/.AI-SETUP/Pending"),
+                           os.path.expanduser("~/.ai-setup/sessions"), os.path.expanduser("~/.AI-SETUP/sessions")):
+                for tool in ("Edit", "Write"):
+                    self.assertEqual(self.check(os.path.join(folder, "abc.json"), tool=tool), "ask", folder)
+
+    def test_a_symlinked_spelling_of_a_state_folder_asks(self):
+        os.makedirs(self.scopes)
+        os.symlink(self.scopes, os.path.join(self.tmp, "alias"))
+        self.assertEqual(self.check(os.path.join(self.tmp, "alias", "x.json")), "ask")
+
+
+class RepoIdentity(Base):
+    def test_the_repo_is_known_by_its_git_common_dir_not_by_the_worktree_folder_name(self):
+        renamed = os.path.join(self.base, "renamed", "t9")
+        touch(os.path.join(renamed, "install.py"))
+        link_worktree(self.checkout, renamed, "t9")
+        self.assertEqual(self.check(os.path.join(renamed, "install.py")), "ask")
+        stranger = os.path.join(self.base, "renamed", "t8")
+        touch(os.path.join(stranger, "install.py"))
+        link_worktree(os.path.join(self.tmp, "repos", "someone-else"), stranger, "t8")
+        self.assertIsNone(self.check(os.path.join(stranger, "install.py")))
+
+    def test_identity_of_an_install_root(self):
+        self.assertEqual(scope.repo_identity(self.wt), REPO)  # a linked worktree: the main checkout's name, not "t1"
+        self.assertEqual(scope.repo_identity(self.checkout), REPO)  # a plain checkout: its folder name
+        plain = os.path.join(self.tmp, "no-git-here")
+        os.makedirs(plain)
+        self.assertEqual(scope.repo_identity(plain), "no-git-here")
+
+    def test_a_worktree_named_after_the_ticket_is_still_judged_when_the_hook_runs_from_it(self):
+        ticket_root = os.path.join(self.base, REPO, "tx")  # what ROOT is when install ran from a worktree
+        touch(os.path.join(ticket_root, "install.py"))
+        link_worktree(self.checkout, ticket_root, "tx")
+        with mock.patch.object(scope, "ROOT", ticket_root):
+            self.assertEqual(scope.repo_identity(), REPO)
+            self.assertEqual(self.check(os.path.join(self.wt, "install.py")), "ask")
+
+
+class Expiry(Base):
+    def test_a_recreated_worktree_of_the_same_name_inherits_nothing(self):
+        self.add(GUARDED)
+        path = os.path.join(self.wt, GUARDED)
+        self.check(path)
+        self.approve(path)
+        self.assertEqual(self.check(path), "allow")
+        shutil.rmtree(self.wt)
+        for rel in (GUARDED, "install.py"):
+            touch(os.path.join(self.wt, rel))
+        link_worktree(self.checkout, self.wt, "t1")
+        os.utime(os.path.join(self.wt, ".git"), ns=(1, 1))  # a new worktree: its .git file is another file
+        self.assertEqual(scope.read_scope(self.wt), set())
+        self.assertEqual(self.check(path), "ask")
+        self.add(GUARDED)
+        self.assertEqual(self.check(path), "ask")  # and a fresh scope starts without a grant
+
+    def test_a_grant_expires_and_so_does_the_scope(self):
+        self.add(GUARDED)
+        path = os.path.join(self.wt, GUARDED)
+        self.check(path)
+        self.approve(path)
+        now = time.time()
+        with mock.patch("time.time", return_value=now + scope.GRANT_TTL - 60):
+            self.assertEqual(self.check(path), "allow")
+        with mock.patch("time.time", return_value=now + scope.GRANT_TTL + 60):
+            self.assertEqual(self.check(path), "ask")
+            self.assertEqual(scope.read_scope(self.wt), {GUARDED})  # the scope itself lasts longer
+        with mock.patch("time.time", return_value=now + scope.SCOPE_TTL + 60):
+            self.assertEqual(scope.read_scope(self.wt), set())
+
+    def test_old_pending_markers_are_pruned(self):
+        self.add(GUARDED)
+        path = os.path.join(self.wt, GUARDED)
+        self.check(path, use="old")
+        marker = os.path.join(self.scopes, "pending", "old.json")
+        self.assertTrue(os.path.exists(marker))
+        os.utime(marker, (1, 1))
+        self.check(path, use="new")
+        self.assertFalse(os.path.exists(marker))
+
+
 class SelfCheck(Base):
     GOOD = {"hooks": {"PreToolUse": [{"matcher": "Edit|Write|MultiEdit|NotebookEdit", "hooks": [
         {"type": "command", "command": 'python3 -I "$HOME/.claude/hooks/scoped_edit.py"'}]}],
@@ -299,6 +451,8 @@ class TicketFlowGate(unittest.TestCase):
             text = f.read()
         self.assertIn("{{AI_SETUP}}/core/guard/scope.py add", text)
         self.assertIn("not in the allowlist", text)
+        self.assertIn("! python3 -I {{AI_SETUP}}/core/guard/scope.py add", text)  # the owner runs it: the sandbox cannot write the scope
+        self.assertIn("scope.py clear", text)  # and it is cleared when the worktree is deleted
 
 
 if __name__ == "__main__":
