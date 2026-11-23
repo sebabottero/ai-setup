@@ -1,6 +1,6 @@
 # Design decisions
 
-Five choices that shape ai-setup, and what each one costs.
+Six choices that shape ai-setup, and what each one costs.
 
 ## 1. One guard for every tool
 **Decision:** a single `core/guard/guard.py` decides allow / ask / deny. Each adapter only translates its tool's hook format into that one JSON shape.
@@ -31,3 +31,9 @@ Five choices that shape ai-setup, and what each one costs.
 
 - **Why:** your hand-written rules survive, and a bad layer stops the install with the offending rule.
 - **Cost:** choosing fewer layers removes nothing by itself. You uninstall a layer explicitly with `--uninstall`.
+
+## 6. Protected paths ask on every edit
+**Decision:** each edit of a protected path asks once, through Claude Code's own `Edit(<path>)` ask rules. There are no scoped or remembered approvals.
+
+- **Why:** in Claude Code 2.1.317 a PreToolUse hook `allow` does not override a settings `ask` rule (read from the binary, not a live test), and the Bash guard does not see Edit or Write. Letting a hook be the only wall would remove defense in depth: a crashed or uninstalled hook would leave protected files editable.
+- **Cost:** more prompts when you edit protected files. Revisit with the ask-fatigue numbers from `usage_report.py` (asks per day, approval rate).
