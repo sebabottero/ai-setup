@@ -122,6 +122,37 @@ def count(run, key):
     return len(run[key]) if isinstance(run.get(key), list) else 0
 
 
+TOP_N = 15
+PREFIX_WORDS = {"cd", "export", "pushd", "set", "unset", "source", "."}  # setup words, not the command that did the work
+NO_HEAD = "(no command word)"
+
+
+def command_head(command):
+    """First real command of a logged command line: skips FOO=1 assignments and cd/export-style setup segments, and
+    reduces a path to its basename. Splits on text, not shell rules: the line is redacted and may be cut at 240 chars."""
+    for seg in re.split(r"&&|\|\||[;|\n]", command):
+        words = seg.lstrip(" \t({!").split()
+        while words and re.fullmatch(r"[A-Za-z_]\w*=\S*", words[0]):
+            words.pop(0)
+        if not words or words[0] in PREFIX_WORDS:
+            continue
+        return os.path.basename(words[0].strip("\"'")) or words[0]
+    return NO_HEAD
+
+
+def outside_sandbox(lines, start, end):
+    """Counter of command heads for the actions.log lines that ran outside the sandbox without asking
+    (6 fields, MEDIUM, `ran`, rule `outside-sandbox`) at a time inside [start, end)."""
+    heads = collections.Counter()
+    for line in lines or []:
+        f = line.split("\t")
+        if len(f) == 6 and f[2] == "MEDIUM" and f[3] == "ran" and f[4] == "outside-sandbox":
+            when = usage_report._when(f[0])
+            if when and start <= when < end:
+                heads[command_head(f[5])] += 1
+    return heads
+
+
 def build(dev_root, label, projects=None, reviews_path=None, actions_path=None, guard_path=None):
     start, end = week_bounds(label)
     dev_root = os.path.expanduser(dev_root)
@@ -211,8 +242,20 @@ def build(dev_root, label, projects=None, reviews_path=None, actions_path=None, 
         md.append(f"Counted over {len(week)} review lines, one per round logged; a finding that stays open is counted again each round.")
     md.append("")
 
-    md += ["## Outside-sandbox commands", "",
-           "<!-- S9b (criterion 15) fills this section: the list of commands that ran outside the sandbox. Empty for now. -->", ""]
+    md += ["## Outside-sandbox commands", ""]
+    heads = outside_sandbox(read_lines(actions_path), start, end)
+    if not heads:
+        md.append("none")
+    else:
+        total = sum(heads.values())
+        ranked = sorted(heads.items(), key=lambda kv: (-kv[1], kv[0]))
+        md += ["| command | ran |", "|---|---|"] + [f"| {h} | {n} |" for h, n in ranked[:TOP_N]]
+        rest = ranked[TOP_N:]
+        if rest:
+            md.append(f"| other ({len(rest)} commands) | {sum(n for _, n in rest)} |")
+        md += ["", f"Total: {total} commands ran outside the sandbox without asking (MEDIUM `outside-sandbox`), "
+                   "grouped by command head. Command text is shown as the log redacted it."]
+    md.append("")
     return "\n".join(md)
 
 
