@@ -5,6 +5,7 @@ import json, os, re, subprocess, sys, tempfile, unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 TICKET_FLOW = os.path.join(ROOT, "core", "skills", "ticket-flow", "SKILL.md")
+REFERENCE = os.path.join(ROOT, "docs", "REFERENCE.md")
 XPROV = os.path.join(ROOT, "core", "agents", "sub-review-xprov.md")
 REPORT = os.path.join(ROOT, "core", "guard", "review_report.py")
 RUN_JSON = os.path.join(ROOT, "core", "guard", "run_json.py")
@@ -52,6 +53,19 @@ class Wording(unittest.TestCase):
     def test_9_same_findings_table_as_sub_review(self):
         self.assert_in(XPROV, "`| severity | triage | reason | file:line | problem | fix |`", "`blocking`", "`fix_now`", "`defer`", "`reject`")
 
+    def test_9_launch_commands_are_said_to_be_unverified(self):
+        for path in (TICKET_FLOW, REFERENCE):
+            self.assert_in(path, "not verified end to end", "not run in a real ticket")
+
+    def test_9_opencode_needs_a_non_claude_model_and_saving_asks_each_time(self):
+        self.assert_in(TICKET_FLOW, "`--model` is mandatory and must be a non-claude model", "otherwise it is not a second provider")
+        for path in (TICKET_FLOW, REFERENCE):
+            self.assert_in(path, "in opencode, saving the second report asks for ok each time", "only edits under `handoffs/*`", "the agent is not widened")
+
+    def test_9_earlier_cross_report_is_kept_as_r_n_and_path_sharing_is_noted(self):
+        self.assert_in(TICKET_FLOW, "<branch>.<provider>.r<n>.md")
+        self.assert_in(REFERENCE, "<branch>.<provider>.r<n>.md", "a branch named `<x>.<name>` shares that path")
+
     def test_9_no_policy_change_is_asked_for(self):
         self.assert_in(TICKET_FLOW, "each one asks for my ok like any other command; nothing here widens the policy")
 
@@ -90,12 +104,21 @@ class ReviewerOption(Repo):
         self.assertIn("Verdict: PASS", lines)
         self.assertTrue(any(l.startswith("Commit: ") and len(l) > 10 for l in lines))
 
-    def test_reviewer_header_keeps_both_reports_and_archives_nothing(self):
+    def test_reviewer_header_keeps_the_earlier_cross_report_and_leaves_the_main_one_alone(self):
         self.write("t-1.md", "Verdict: PASS\nmain report\n")
         self.write("t-1.codex.md", "Verdict: FAIL\nold codex report\n")
         self.header("--reviewer", "codex")
-        self.assertEqual(sorted(os.listdir(self.reports)), ["t-1.codex.md", "t-1.md"])
-        self.assertEqual(open(os.path.join(self.reports, "t-1.md")).read(), "Verdict: PASS\nmain report\n")
+        self.assertEqual(sorted(os.listdir(self.reports)), ["t-1.codex.md", "t-1.codex.r1.md", "t-1.md"])
+        with open(os.path.join(self.reports, "t-1.codex.r1.md")) as f:
+            self.assertEqual(f.read(), "Verdict: FAIL\nold codex report\n")
+        with open(os.path.join(self.reports, "t-1.md")) as f:
+            self.assertEqual(f.read(), "Verdict: PASS\nmain report\n")
+        self.header("--reviewer", "codex")  # no new report in between: nothing more is kept
+        self.assertEqual(sorted(os.listdir(self.reports)), ["t-1.codex.md", "t-1.codex.r1.md", "t-1.md"])
+
+    def test_reviewer_header_with_no_earlier_report_writes_nothing(self):
+        self.header("--reviewer", "codex")
+        self.assertFalse(os.path.exists(self.reports))
 
     def test_main_header_ignores_the_extra_report_and_still_archives_its_own(self):
         self.write("t-1.md", "Verdict: PASS\nmain report\n")
@@ -106,7 +129,7 @@ class ReviewerOption(Repo):
         self.assertEqual(sorted(os.listdir(self.reports)), ["t-1.codex.md", "t-1.md", "t-1.r1.md"])
 
     def test_bad_reviewer_names_are_refused(self):
-        for bad in ("r2", "../x", "Codex Two", "a.b", ""):
+        for bad in ("r2", "../x", "Codex Two", "a.b", "sub-review", ""):
             if not bad:
                 continue
             run = self.header("--reviewer", bad)

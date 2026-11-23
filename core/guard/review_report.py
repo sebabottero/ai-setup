@@ -6,8 +6,8 @@
     An earlier non-empty report at that path is first copied to <branch>.r<N>.md (next N), so every round is kept and the
     newest stays at <branch>.md; running header again without a new report in between adds nothing.
     --reviewer NAME (a second reviewer from another provider, e.g. codex): the path is <branch>.<NAME>.md and the header says
-    `Reviewer: NAME`; nothing is archived and <branch>.md (the merge gate's report) is not touched. The extra report is
-    overwritten by the next run of the same reviewer; ai-audit does not count it as a branch report.
+    `Reviewer: NAME`; <branch>.md (the merge gate's report) is not touched. An earlier non-empty report of the same reviewer is
+    first kept as <branch>.<NAME>.r<N>.md, like the main rounds; ai-audit does not count either as a branch report.
   python3 -I review_report.py log --stage 3|4 [--dir D] [--dev-root DIR]
     appends one line to <dev_root>/logs/reviews.log (tab separated: time, repo, branch, round, stage, verdict, findings
     per severity, triage counts) from the report just written. Severities are read from the issues table's severity column:
@@ -40,8 +40,8 @@ def repo_name(directory):
 
 def check_reviewer(name):
     """A reviewer name is one lowercase word; `r<N>` is refused because <branch>.r<N>.md is an archived round."""
-    if not re.fullmatch(r"[a-z][a-z0-9-]*", name or "") or re.fullmatch(r"r\d+", name):
-        raise ValueError(f"reviewer must be a lowercase word like codex or opencode (not r<N>): {name!r}")
+    if not re.fullmatch(r"[a-z][a-z0-9-]*", name or "") or re.fullmatch(r"r\d+", name) or name == "sub-review":
+        raise ValueError(f"reviewer must be a lowercase word like codex or opencode (not r<N>, not sub-review): {name!r}")
     return name
 
 
@@ -198,8 +198,7 @@ def header(directory, dev_root, verdict="", reviewer=""):
     branch = git(directory, "symbolic-ref", "-q", "--short", "HEAD") or "HEAD"
     repo = repo_name(directory) or "?"
     path = report_path(dev_root, repo, branch, reviewer)
-    if not reviewer:
-        archive(path)
+    archive(path)
     tree = worktree_tree(directory)
     if not tree:
         print("warning: could not compute the tree of the working tree; the report will match by commit only", file=sys.stderr)
