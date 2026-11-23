@@ -142,10 +142,10 @@ def command_head(command):
 
 def outside_sandbox(lines, start, end):
     """Counter of command heads for the actions.log lines that ran outside the sandbox without asking
-    (6 fields, MEDIUM, `ran`, rule `outside-sandbox`) at a time inside [start, end)."""
+    (6 fields, the command may hold tabs; MEDIUM, `ran`, rule `outside-sandbox`) at a time inside [start, end)."""
     heads = collections.Counter()
     for line in lines or []:
-        f = line.split("\t")
+        f = line.split("\t", 5)
         if len(f) == 6 and f[2] == "MEDIUM" and f[3] == "ran" and f[4] == "outside-sandbox":
             when = usage_report._when(f[0])
             if when and start <= when < end:

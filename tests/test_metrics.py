@@ -205,11 +205,11 @@ class Metrics(unittest.TestCase):
             self.outside(18, "ls", what="asked"), self.outside(18, "ls", what="deny"),
             self.outside(18, "ls", what="approved"),
             self.outside(18, "ls", rule="git push *"), self.outside(18, "ls", risk="HIGH"),
-            "garbage line", self.outside(18, "ls") + "\textra",
+            "garbage line", self.outside(18, "ls\textra"),  # a tab inside the command stays in the command
         ])
         sec = self.section(self.build())
-        self.assertIn("| ls | 2 |", sec)
-        self.assertIn("Total: 2", sec)
+        self.assertIn("| ls | 3 |", sec)
+        self.assertIn("Total: 3", sec)
 
     def test_outside_sandbox_empty_week_and_missing_log_print_none(self):
         self.log("actions.log", [self.outside(9, "ls")])
