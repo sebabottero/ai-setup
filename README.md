@@ -12,7 +12,7 @@ Without ai-setup:  agent runs `git push --force origin main`  → done, no quest
 With ai-setup:     agent runs `git push --force origin main`  → 🔴 "needs your explicit OK"
 ```
 
-![The guard allows git status and asks before git push --force and git reset --hard](docs/assets/guard-demo.gif)
+![The guard on four commands an agent might run: git status is allowed, git push --force and rm -rf ask for your OK, reading an SSH key is denied](docs/assets/guard-demo.gif)
 
 ## Why use it
 - **Stop babysitting.** Reads run freely. `git push`, `rm -rf`, merges and secret reads need your OK, and secrets are a hard `deny`. You can leave the agent working without watching every command.
