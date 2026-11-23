@@ -128,9 +128,14 @@ class Seg(str):
     real = True
 
 
+def wrapper_prefix(words):
+    """Each word is part of a wrapper prefix: a wrapper, its flag, a duration, or the value of a flag like -u / -C."""
+    return all(os.path.basename(w) in WRAPPERS or w.startswith("-") or re.fullmatch(r"\d+[smhd]?", w)
+               or (n > 0 and words[n - 1] in WRAPPER_VALUE_OPTS) for n, w in enumerate(words))
+
+
 def starts_command(words, i):
-    return i == 0 or words[i - 1] in EXEC_FLAGS or all(
-        w in WRAPPERS or w.startswith("-") or re.fullmatch(r"\d+[smhd]?", w) for w in words[:i])
+    return i == 0 or words[i - 1] in EXEC_FLAGS or wrapper_prefix(words[:i])
 
 
 def rm_targets(args):
@@ -298,8 +303,9 @@ def _part_segments(part):
     for k, w in enumerate(orig):
         # env assignments are not the command, but only in the prefix (wrappers, their flags, assignments): after the
         # command word `x=y` is an argument or an option value (git -c x=y push)
-        in_prefix = all(os.path.basename(p) in WRAPPERS or p.startswith("-") or re.fullmatch(r"\d+[smhd]?", p) for _, p in kept)
-        if not (in_prefix and re.match(r"^\w+=", w)):
+        in_prefix = wrapper_prefix([p for _, p in kept])
+        split_text = bool(kept) and any(os.path.basename(p) == "env" for _, p in kept) and re.fullmatch(r"--split-string|-[iv0]*S", kept[-1][1]) and not (len(kept) > 1 and kept[-2][1] in WRAPPER_VALUE_OPTS) and re.search(r"\s", w)  # env -S 'FOO=1 git push': a command line, not an assignment
+        if not (in_prefix and re.match(r"^\w+=", w) and not split_text):
             kept.append((k, w))
     words = [w for _, w in kept]
     # /usr/bin/git, /usr/bin/env: a wrapper or git named by path is judged by its name
@@ -320,6 +326,8 @@ def _part_segments(part):
             again = Seg(" ".join(inner))
             again.words = inner
             yield again
+            if inner[:1] != [words[i]]:  # (a word shlex does not split, like one with a form feed, would loop)
+                yield from _part_segments(shlex.join(inner))  # env -S 'FOO=1 git push', 'sudo git push': the text is a whole command line
             if inner and os.path.basename(inner[0]) == "git":  # env -S 'git -c k=v push': judge the option-less form too
                 yield from _without_git_options(inner)
         if named[i] == "git":  # git --no-pager -C dir -c k=v push → git push

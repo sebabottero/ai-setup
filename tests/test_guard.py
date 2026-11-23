@@ -143,6 +143,34 @@ class Asks(unittest.TestCase):
         self.assertEqual(list(guard.segments("FOO=1 git push")), ["git push"])
         self.assertEqual(list(guard.segments("env FOO=1 git push")), ["env git push", "git push"])
 
+    def test_wrapper_value_options_before_an_assignment_still_ask(self):
+        for c in ["env -u A FOO=1 git push", "sudo -u root FOO=1 git push", "env -C /tmp FOO=1 git push"]:
+            self.assertTrue(any(s == "git push" for s in guard.segments(c)), c)
+            self.assertEqual(decision(c), "ask", c)
+
+    def test_env_split_string_is_judged_as_a_command_line(self):
+        for c in ["env -S 'FOO=1 git push'", "env -S 'sudo git push'", "env -S 'nice git push'", "env -S '/usr/bin/git push'"]:
+            self.assertTrue(any(s == "git push" for s in guard.segments(c)), c)
+            self.assertEqual(decision(c), "ask", c)
+
+    def test_env_split_string_long_and_clustered_flags(self):
+        for c in ["env --split-string 'FOO=1 git push'", "env -iS 'FOO=1 git push'", "env -vS 'FOO=1 git push'"]:
+            self.assertTrue(any(s == "git push" for s in guard.segments(c)), c)
+            self.assertEqual(decision(c), "ask", c)
+        for c in ["env -iS 'FOO=1 ls'", "env --split-string 'FOO=1 ls'"]:
+            self.assertEqual(decision(c), "allow", c)
+
+    def test_quoted_assignment_after_a_flag_ending_in_s_is_still_an_assignment(self):
+        for c in ["sudo -s FOO='a b' git push", "sudo -S FOO='a b' git push", "sudo -Hs FOO='a b' git push",
+                  "env -s FOO='a b' git push", "timeout -s 'A=1 B' 5 git push",
+                  "env -uS FOO='a b' git push", "env -CS FOO='a b' git push", "env -iuS FOO='a b' git push",
+                  "env -u -S FOO='a b' git push", "env --chdir -S FOO='a b' git push"]:
+            self.assertEqual(decision(c), "ask", c)
+
+    def test_wrapper_value_options_and_split_string_keep_harmless_commands_allowed(self):
+        for c in ["env -u A FOO=1 ls", "sudo -u root FOO=1 ls", "env -S 'FOO=1 ls'", "env -S 'nice ls'", "env -S '/usr/bin/git status'"]:
+            self.assertEqual(decision(c), "allow", c)
+
     def test_blank_wrapper_word_does_not_raise(self):
         for c in ["env -S ' '", "env ' '", "sudo -s ' '"]:
             list(guard.segments(c))
