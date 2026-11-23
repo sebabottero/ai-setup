@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **Let your AI coding agent work fast, without handing it the keys.**
-A local harness for Claude Code, OpenCode and Codex: it asks before anything hard to undo, runs tickets with an independent review, and leaves logs so you can measure it.
+A guard that asks before anything hard to undo, one policy for Claude Code, OpenCode and Codex, and local logs to see it work.
 
 ```
 Without ai-setup:  agent runs `git push --force origin main`  → done, no questions
