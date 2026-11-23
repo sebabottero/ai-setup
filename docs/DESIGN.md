@@ -1,6 +1,6 @@
 # Design decisions
 
-Five choices that shape ai-setup, and what each one costs.
+Six choices that shape ai-setup, and what each one costs.
 
 ## 1. One guard for every tool
 **Decision:** a single `core/guard/guard.py` decides allow / ask / deny. Each adapter only translates its tool's hook format into that one JSON shape.
