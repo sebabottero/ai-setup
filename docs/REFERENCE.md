@@ -130,7 +130,7 @@ earlier that no layer produces any more. Rules you added by hand stay.
 | Capability | Claude Code | OpenCode v2 | Codex |
 |---|---|---|---|
 | Ask for OK / forbid (guard) | PreToolUse hook → `core/guard` | `permission.evaluate` plugin → `core/guard` (beta API: after updating, check that `git push` asks) | ❌ |
-| OS-level wall | native `sandbox`: secrets, network, writes | ❌ (rules + guard only) | ❌ |
+| OS-level wall | native `sandbox`: secrets, network, writes | ❌ by default (rules + guard); opt-in `install.py --opencode-sandbox` writes srt settings + launcher | ❌ |
 | Protect its own rules | `Edit` asks for OK + sandbox `denyWrite` | `edit` asks for OK + guard | ❌ |
 | Models | `tier` → opus / sonnet / haiku + `effort`; subagents without a tier (`general-purpose`) run on Sonnet | `tiers.json` → any provider | — |
 
@@ -208,7 +208,7 @@ Put your own rules in a layer (a folder with the files below); `core/` stays unt
 | `push_allow` | `{"remotes": [...], "branches": [...]}` (a layer key, off by default): `git push [-u] <remote> <branch>` with both named runs without asking. The branch must be spelled out (`ai/x`, `ai/x:ai/x`, `HEAD:ai/x`); bare `git push`, `HEAD`, `--force`, `+ref`, tags, `--delete`, `--all`, `--mirror`, a refspec list and `git -c` / `git config` / `git remote` / `xargs` / a `.git` path in the same line still ask. For Claude the installer also adds `Bash(git push <remote> <branch>)` and the `-u` / `--set-upstream` forms to `permissions.allow`, only for a literal branch or a `prefix/*` glob of safe characters (and checks the guard allows each one); the rule alone is wider than the guard (it also matches extra arguments such as `--force`): the hook is what asks, so if the hook is broken or absent the rule widens what runs. The hook still asks on a tainted line, and uninstall takes the rules out. OpenCode has no such rule and keeps asking on `git push`. |
 | `ask_mcp_tools` | MCP tools (`server.tool`, globs) that ask first. |
 | `work_dirs` | Extra folders the agent may work in. |
-| `sandbox` | `allowed_domains`, `allow_write`, `unsandboxed_commands`, `allow_unsandboxed_commands` (Claude only). |
+| `sandbox` | `allowed_domains`, `allow_write`, `unsandboxed_commands`, `allow_unsandboxed_commands` (Claude). With `install.py --opencode-sandbox`, OpenCode's srt settings reuse `allowed_domains`, `allow_write`, `work_dirs`, `deny_home_dirs`, `deny_files` and `protected_paths`, plus `adapters/opencode/sandbox/extra.json` (OpenCode state dirs, provider hosts); the launcher adds `$PWD` as writable. TO VERIFY: the srt schema was written offline. |
 
 `ask` and `deny` always win over `allow`. `install.sh` checks the composed policy and stops with the offending rule. Editing a `policy.json` asks for your OK because it can loosen permissions.
 A rule for **everyone** (not just you) goes in `core/policy.json` with a test in `tests/test_guard.py`; see [CONTRIBUTING.md](../CONTRIBUTING.md).
