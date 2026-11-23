@@ -43,6 +43,34 @@ class Install(unittest.TestCase):
             self.assertEqual(sum("ask_outcome.py" in h["command"] for g in hooks[event] for h in g["hooks"]), 1, event)
         self.assertTrue(os.path.exists(os.path.join(self.home, ".claude", "hooks", "ask_outcome.py")))
 
+    def test_scoped_edit_hook_is_registered_for_edit_tools_before_and_after(self):
+        hooks = self.load(".claude", "settings.json")["hooks"]
+        for event in ("PreToolUse", "PostToolUse"):
+            hit = [g for g in hooks[event] for h in g["hooks"] if "scoped_edit.py" in h["command"]]
+            self.assertEqual(len(hit), 1, event)
+            for tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
+                self.assertIn(tool, hit[0]["matcher"].split("|"), event)
+        self.assertNotIn("PostToolUseFailure", [e for e, gs in hooks.items() if any("scoped_edit.py" in h["command"] for g in gs for h in g["hooks"])])
+        self.assertTrue(os.path.exists(os.path.join(self.home, ".claude", "hooks", "scoped_edit.py")))
+
+    def test_every_protected_path_outside_ticket_worktrees_keeps_its_native_ask_rule(self):
+        sys.path.insert(0, ROOT)
+        import install
+        s = self.load(".claude", "settings.json")
+        pol = install.layerlib.compose_policy(ROOT, install.layerlib.present(ROOT))
+        asks = s["permissions"]["ask"]
+        with mock.patch.object(install, "HOME", self.home):
+            paths = install.protected_paths(pol)
+        self.assertTrue(paths)
+        for p in paths:
+            if not p.startswith(os.path.join(self.home, "worktrees") + "/"):  # the test home has no ticket worktree for ROOT
+                self.assertIn(f"Edit(/{p})", asks, p)
+        self.assertIn(f"{ROOT}/core/guard/**", s["sandbox"]["filesystem"]["denyWrite"])  # the sandbox wall is untouched
+
+    def test_scope_helper_runs_outside_the_sandbox_only_by_its_exact_path(self):
+        excluded = self.load(".claude", "settings.json")["sandbox"]["excludedCommands"]
+        self.assertIn(f"python3 -I {ROOT}/core/guard/scope.py *", excluded)
+
     def test_claude(self):
         s = self.load(".claude", "settings.json")
         commands = [h["command"] for groups in s["hooks"].values() for g in groups for h in g["hooks"]]
@@ -115,6 +143,37 @@ class RetiredHooks(unittest.TestCase):
         self.assertEqual(install(home).returncode, 0)
         with open(path) as f:
             self.assertEqual(f.read(), first)
+
+
+class NativeRulesNarrowed(unittest.TestCase):
+    """Variant E: a protected path inside <dev root>/worktrees loses its native ask rule (the hook asks there); all others keep it."""
+    def test_only_paths_under_the_worktrees_folder_are_dropped(self):
+        sys.path.insert(0, ROOT)
+        import install
+        pol = {"dev_root": "/dev", "protected_paths": ["/main/ai-setup/core/guard/*", "/dev/worktrees/ai-setup/t1/install.py",
+                                                       "/dev/worktrees-old/x.py", "/dev/repos/ai-setup/install.py",
+                                                       "~/.config/opencode/opencode.json"]}
+        with mock.patch.object(install, "HOME", "/home/x"):
+            kept = install.native_ask_paths(pol)
+            expected = [p for p in install.protected_paths(pol) if p != "/dev/worktrees/ai-setup/t1/install.py"]
+        self.assertEqual(kept, expected)
+        self.assertIn("/home/x/.config/opencode/opencode.json", kept)
+        self.assertEqual(len(kept), 4)
+
+    def test_the_scoped_edit_hook_passes_the_install_self_check(self):
+        sys.path.insert(0, ROOT)
+        import install
+        self.assertIsNone(install.scoped_edit_problem())
+
+    def test_a_missing_scoped_edit_hook_is_a_problem(self):
+        sys.path.insert(0, ROOT)
+        import install
+        real = install.ADAPTERS
+        install.ADAPTERS = os.path.join(tempfile.mkdtemp(), "nowhere")
+        try:
+            self.assertIsNotNone(install.scoped_edit_problem())
+        finally:
+            install.ADAPTERS = real
 
 
 class GuardCheck(unittest.TestCase):

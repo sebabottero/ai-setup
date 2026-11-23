@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Claude Code PostToolUse / PostToolUseFailure / SessionEnd / SessionStart hook: records how a guard ask ended in
-actions.log (core/guard/outcomes.py holds the logic and the limits). Never blocks, never prints.
+actions.log (core/guard/outcomes.py holds the logic and the limits). Never blocks; prints only the one-line SessionStart warning below.
   PostToolUse          the asked tool ran: `approved`
   PostToolUseFailure   it ran and failed: `approved`, unless the error says the permission was refused or the user interrupted
   SessionEnd           asks still unanswered: `declined` (inferred: the tool never ran)
-  SessionStart         remembers the session id of this folder (run_json.py --session auto); sweep of asks left by a session that died without SessionEnd: `declined`"""
+  SessionStart         remembers the session id of this folder (run_json.py --session auto); sweep of asks left by a session that died without SessionEnd: `declined`;
+                       warns when the scoped_edit.py hook (core/guard/scope.py) is not registered in ~/.claude/settings.json"""
 import json, os, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
@@ -30,6 +31,21 @@ def main():
     elif kind == "SessionStart":
         outcomes.remember_session(event.get("cwd"), session)
         outcomes.sweep(session)
+        warn_if_scoped_edit_missing()
+
+
+def warn_if_scoped_edit_missing():
+    """The only output of this hook: one line when scoped_edit.py is not wired in settings.json (protected paths in ticket
+    worktrees would not ask). It lives here because a hook that is not registered cannot report itself."""
+    import scope
+    try:
+        with open(os.path.expanduser("~/.claude/settings.json")) as f:
+            settings = json.load(f)
+    except (OSError, ValueError):
+        return
+    problem = scope.hook_problem(settings) if isinstance(settings, dict) else None
+    if problem:
+        print(json.dumps({"systemMessage": f"ai-setup: {problem}"}))
 
 
 if __name__ == "__main__":
