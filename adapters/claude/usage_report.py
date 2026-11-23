@@ -4,8 +4,6 @@ run the turns, which tools dominate. Reads ~/.claude/projects only; sends nothin
 Usage: python3 -I adapters/claude/usage_report.py [days]   (default: all transcripts)"""
 import collections, datetime, glob, json, os, sys, time
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "core", "guard"))
-
 LIMIT = 150_000
 TOKEN_KEYS = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
 
@@ -40,15 +38,16 @@ def summarize(paths):
             "output_tokens": output, "models": models, "tools": tools}
 
 
-def guard_summary(path=None):
-    """Counts from the guard log (time, tool, decision, rule per line); None if there is no log yet."""
+def guard_summary(path=None, since=None):
+    """Counts from the guard log (time, tool, decision, rule per line), from `since` (a datetime) on; None if there is no log yet."""
     path = path or os.environ.get("AI_SETUP_GUARD_LOG") or os.path.expanduser("~/.ai-setup/guard.log")
     counts, rules = collections.Counter(), collections.Counter()
     try:
         with open(path, errors="ignore") as f:
             for line in f:
                 parts = line.rstrip("\n").split("\t")
-                if len(parts) == 4 and parts[2] in ("allow", "ask", "deny"):
+                if len(parts) == 4 and parts[2] in ("allow", "ask", "deny") and (since is None or (
+                        _when(parts[0]) or datetime.datetime.min) >= since):
                     counts[parts[2]] += 1
                     if parts[2] != "allow":
                         rules[parts[3]] += 1
@@ -84,14 +83,18 @@ def guard_decisions(path=None, since=None):
     return out
 
 
+def _actions_path():
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "core", "guard"))
+    import guard
+    return guard.actions_log_path()
+
+
 def ask_outcomes(path=None, since=None):
     """How the asks in the action log ended (guard.actions_log_path unless a path is given). Outcome lines are linked to
     the `asked` line by session + command, oldest first; the ask's own time is the decision time (a `declined` line is
     stamped when it was inferred). Returns None without a log, else {approved, declined, unknown, unresolved, asks}.
     Old lines without outcomes count as unresolved."""
-    if path is None:
-        import guard
-        path = guard.actions_log_path()
+    path = path or _actions_path()
     asks, outcomes = collections.defaultdict(list), collections.defaultdict(collections.deque)
     try:
         with open(path, errors="ignore") as f:
@@ -110,7 +113,6 @@ def ask_outcomes(path=None, since=None):
     result = collections.Counter()
     for key, times in asks.items():
         for when in sorted(times):
-            result["asks_all"] += 1
             outcome = outcomes[key].popleft() if outcomes[key] else None  # oldest ask takes the oldest outcome
             if since is not None and when < since:
                 continue
@@ -148,6 +150,7 @@ def ask_report(days=None, now=None, guard_path=None, actions_path=None):
             lines.append(f"  guard.log only covers from {min(d[0] for d in decisions).date()} on: earlier days and the first week are partial")
         rules = collections.Counter(d[2] for d in asks)
         lines.append("Top ask rules: " + (", ".join(f"{r} {c}" for r, c in rules.most_common(5)) or "none"))
+    actions_path = actions_path or _actions_path()
     o = ask_outcomes(actions_path, since)
     if o is None:
         lines.append("Approval rate: no action log yet")
@@ -157,10 +160,12 @@ def ask_report(days=None, now=None, guard_path=None, actions_path=None):
         lines.append(f"Approval rate: {rate}; unknown {o['unknown']}, unresolved {o['unresolved']} "
                      f"(of {o['asks']} asks in the action log, which keeps only notable commands; declined is inferred "
                      "when the session ends, never guessed for unknown or unresolved)")
+        if os.path.exists(actions_path + ".1"):
+            lines.append(f"  {actions_path}.1 exists (the log rotated at 1 MB): the window may be partial, rotated lines are not read")
     return lines
 
 
-def main(days=None):
+def main(days=None, now=None):
     paths = glob.glob(os.path.expanduser("~/.claude/projects/*/*.jsonl"))
     if days:
         paths = [p for p in paths if os.path.getmtime(p) > time.time() - days * 86400]
@@ -171,13 +176,14 @@ def main(days=None):
     total = max(sum(s["models"].values()), 1)
     print("Turns by model: " + ", ".join(f"{m} {100 * c // total}%" for m, c in s["models"].most_common(4)))
     print("Top tools: " + ", ".join(f"{t} {c}" for t, c in s["tools"].most_common(6)))
-    g = guard_summary()
+    now = now or datetime.datetime.now()
+    g = guard_summary(since=now - datetime.timedelta(days=days) if days else None)
     if g:
-        print(f"Guard: {g['allow']} allowed, {g['ask']} asked, {g['deny']} denied. "
+        print(f"Guard ({f'last {days} days' if days else 'all time'}): {g['allow']} allowed, {g['ask']} asked, {g['deny']} denied. "
               "Rules that fire most: " + (", ".join(f"{r} {c}" for r, c in g["rules"].most_common(5)) or "none"))
     else:
         print("Guard: no log yet (~/.ai-setup/guard.log is written when the guard runs)")
-    for line in ask_report(days):
+    for line in ask_report(days, now):
         print(line)
 
 

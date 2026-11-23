@@ -1,4 +1,4 @@
-import datetime, os, sys, tempfile, unittest
+import contextlib, datetime, io, os, sys, tempfile, unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "adapters", "claude"))
@@ -7,8 +7,15 @@ import usage_report
 NOW = datetime.datetime(2026, 11, 20, 12, 0, 0)  # a Friday, ISO week 2026-W47
 
 
+TMP = tempfile.TemporaryDirectory()
+
+
+def tearDownModule():
+    TMP.cleanup()
+
+
 def write(name, lines):
-    path = os.path.join(tempfile.mkdtemp(), name)
+    path = os.path.join(tempfile.mkdtemp(dir=TMP.name), name)
     with open(path, "w") as f:
         f.write("\n".join(lines) + "\n")
     return path
@@ -64,10 +71,44 @@ class AskReport(unittest.TestCase):
         self.assertEqual(top, "Top ask rules: rule6 7, rule5 6, rule4 5, rule3 4, rule2 3")
 
     def test_missing_logs_say_so(self):
-        gone = os.path.join(tempfile.mkdtemp(), "nope.log")
+        gone = os.path.join(tempfile.mkdtemp(dir=TMP.name), "nope.log")
         out = "\n".join(usage_report.ask_report(7, NOW, gone, gone))
         self.assertIn("no guard log yet", out)
         self.assertIn("Approval rate: no action log yet", out)
+
+    def test_rotated_action_log_is_flagged(self):
+        a = write("a.log", [action(18, "s1", "asked", "git push a")])
+        open(a + ".1", "w").close()
+        out = "\n".join(usage_report.ask_report(14, NOW, write("g.log", []), a))
+        self.assertIn("the log rotated at 1 MB", out)
+
+
+class Main(unittest.TestCase):
+    def run_main(self, days):
+        env = {"HOME": tempfile.mkdtemp(dir=TMP.name), "AI_SETUP_GUARD_LOG": write("g.log", [
+            guard_line(1, 9, "ask"), guard_line(18, 9, "ask"), guard_line(18, 10, "allow"), guard_line(19, 9, "deny", "secret")]),
+            "AI_SETUP_ACTIONS_LOG": write("a.log", [action(18, "s1", "asked", "git push a"),
+                                                  action(18, "s1", "approved", "git push a")])}
+        old = {k: os.environ.get(k) for k in env}
+        os.environ.update(env)
+        try:
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf):
+                usage_report.main(days, NOW)
+            return buf.getvalue()
+        finally:
+            for k, v in old.items():
+                os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+
+    def test_main_prints_every_ask_line_and_the_guard_line_honours_the_window(self):
+        out = self.run_main(14)
+        self.assertIn("Guard (last 14 days): 1 allowed, 1 asked, 1 denied.", out)  # the ask on 11-01 is outside
+        for head in ("Asks per day (1 in 1 days", "Ask rate per week", "Top ask rules: git push * 1",
+                     "Approval rate: 100% (1 approved / 1 decided)"):
+            self.assertIn(head, out)
+
+    def test_main_without_days_says_all_time(self):
+        self.assertIn("Guard (all time): 1 allowed, 2 asked, 1 denied.", self.run_main(None))
 
 
 if __name__ == "__main__":
