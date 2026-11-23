@@ -1054,6 +1054,76 @@ class MergeGate(unittest.TestCase):
         self.assertEqual(d, "deny")
         self.assertIn("fetch", why)
 
+    REDIRECTS = ["2>&1", ">/dev/null 2>&1", "&>/dev/null", "2>/dev/null", "> /dev/null", ">>out.log 2>&1", "2> err.log"]
+
+    def test_a_redirect_does_not_change_how_a_pull_is_judged(self):
+        self.remote_tracking()
+        self.on_main()
+        for r in self.REDIRECTS:
+            for c in [f"git pull origin x {r}", f"git pull . x {r}"]:
+                with self.subTest(c):
+                    d, why = self.judge(c)
+                    self.assertEqual(d, "deny")
+                    self.assertIn("sub-review", why)
+                    self.assertEqual(guard.merge_gate(c, self.policy, self.repo), guard.merge_gate(c.replace(f" {r}", ""), self.policy, self.repo))
+
+    def test_a_pull_of_a_namespaced_branch_with_a_redirect_is_judged_by_that_branch(self):
+        self.git("remote", "add", "origin", self.other)
+        self.git("branch", "ai/x", "x")
+        self.git("update-ref", "refs/remotes/origin/ai/x", "x")
+        self.on_main()
+        for r in ["", "2>&1", ">/dev/null 2>&1", "&>/dev/null"]:
+            for c in [f"git pull origin ai/x {r}", f"git pull . ai/x {r}"]:
+                with self.subTest(c):
+                    d, why = self.judge(c)
+                    self.assertEqual(d, "deny")
+                    self.assertIn("sub-review", why)
+
+    def test_a_pull_of_an_unknown_branch_with_a_redirect_is_still_denied(self):
+        self.git("remote", "add", "origin", self.other)
+        self.on_main()
+        for c in ["git pull origin y 2>&1", "git pull origin y >/dev/null 2>&1", "git pull origin y &>/dev/null"]:
+            with self.subTest(c):
+                d, why = self.judge(c)
+                self.assertEqual(d, "deny")
+                self.assertIn("'y' is not a branch known locally", why)
+
+    def test_a_pull_of_main_with_a_redirect_is_still_a_sync(self):
+        self.remote_tracking("main")
+        self.on_main()
+        for r in self.REDIRECTS:
+            for c in [f"git pull origin main {r}", f"git pull {r}"]:
+                with self.subTest(c):
+                    self.assertEqual(self.judge(c)[0], "allow")
+
+    def test_a_redirect_does_not_change_how_a_merge_is_judged(self):
+        self.on_main()
+        for c in ["git merge x 2>&1", "git merge x >/dev/null 2>&1", "git merge x &>/dev/null"]:
+            with self.subTest(c):
+                d, why = self.judge(c)
+                self.assertEqual(d, "deny")
+                self.assertIn("sub-review", why)
+                self.assertEqual(guard.merge_gate(c, self.policy, self.repo), guard.merge_gate("git merge x", self.policy, self.repo))
+
+    def test_a_quoted_or_escaped_redirect_looking_word_stays_an_argument(self):
+        self.git("remote", "add", "origin", self.other)
+        self.on_main()
+        for w in ["'>y'", '">y"', "\\>y", "'<y'"]:
+            for c in [f"git pull origin {w}", f"git pull origin {w} 2>&1"]:
+                with self.subTest(c):
+                    d, why = self.judge(c)
+                    self.assertEqual(d, "deny")
+                    self.assertIn("is not a branch known locally", why)
+                    self.assertNotIn("'2>&1'", why)
+            with self.subTest("merge " + w):
+                d, why = self.judge(f"git merge {w}")
+                self.assertEqual(d, "deny")
+                self.assertIn("is not a branch", why)
+        with self.subTest("quoted > as its own word"):
+            d, why = self.judge("git pull origin '>' y")
+            self.assertEqual(d, "deny")
+            self.assertIn("is not a branch known locally", why)
+
     def test_options_whose_value_is_only_attached_never_swallow_the_remote(self):
         self.remote_tracking()
         self.on_main()
