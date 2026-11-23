@@ -16,12 +16,13 @@ Usage: ./install.sh [--dry-run] [--tools claude,opencode,codex] [--home DIR]
                     [--layers-dir DIR]   (folder with more layers, e.g. a private repo; remembered in the profile)
 The chosen layers are remembered in ~/.ai-setup-profile; with no flag the last choice is repeated (first time: all).
 """
-import argparse, datetime, json, os, re, shlex, shutil, subprocess, sys
+import argparse, datetime, json, os, re, shlex, shutil, subprocess, sys, tempfile
 
 ROOT = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, os.path.join(ROOT, "core", "guard"))
 import layers as layerlib
 import guard
+import scope
 
 CORE = os.path.join(ROOT, "core")
 ADAPTERS = os.path.join(ROOT, "adapters")
@@ -268,6 +269,41 @@ def protected_paths(pol):
     return [expand(p.replace("{{AI_SETUP}}", ROOT)).replace("/*", "/**") for p in pol.get("protected_paths", [])]
 
 
+def worktree_install_problem(pol):
+    """Why installing from here is wrong, or None. The rules and hooks point at this checkout (`{{AI_SETUP}}`): if it is a
+    ticket worktree they break the day it is deleted, and every protected path is then the worktree's copy."""
+    base = os.path.realpath(expand(layerlib.dev_root(pol) + "/worktrees"))
+    if os.path.realpath(ROOT).startswith(base + os.sep):
+        return (f"install.py runs from a ticket worktree ({ROOT}): the ask rules, hooks and sandbox paths now point at a folder that "
+                "will be deleted. Run ./install.sh from the main checkout instead")
+    return None
+
+
+def scoped_edit_problem():
+    """None when the scoped_edit.py hook asks for a protected path of a throwaway ticket worktree; otherwise why not."""
+    hook = os.path.join(ADAPTERS, "claude", "hooks", "scoped_edit.py")
+    with tempfile.TemporaryDirectory() as tmp:
+        base = os.path.realpath(tmp)
+        name = scope.repo_identity()  # a throwaway linked worktree of a checkout named like this repo (a .git file, no git run)
+        worktree = os.path.join(base, "wt", name, "check")
+        gitdir = os.path.join(base, "wt", "main", name, ".git", "worktrees", "check")
+        target = os.path.join(worktree, "install.py")
+        os.makedirs(gitdir)
+        os.makedirs(worktree)
+        with open(os.path.join(gitdir, "commondir"), "w") as f:
+            f.write("../..\n")
+        with open(os.path.join(worktree, ".git"), "w") as f:
+            f.write(f"gitdir: {gitdir}\n")
+        open(target, "w").close()
+        event = json.dumps({"hook_event_name": "PreToolUse", "tool_name": "Edit", "tool_input": {"file_path": target}, "cwd": base})
+        env = dict(os.environ, AI_SETUP_WORKTREES=os.path.join(base, "wt"), AI_SETUP_SCOPES_DIR=os.path.join(base, "scopes"))
+        try:
+            out = subprocess.run([sys.executable, "-I", hook], input=event, capture_output=True, text=True, timeout=20, env=env).stdout
+            return None if json.loads(out)["hookSpecificOutput"]["permissionDecision"] == "ask" else f"{hook} did not ask for a protected path"
+        except (OSError, ValueError, KeyError, subprocess.SubprocessError) as exc:
+            return f"{hook} does not run ({exc})"
+
+
 def render_build(name, text):
     path = os.path.join(BUILD, name)
     if os.path.isfile(path) and open(path).read() == text:
@@ -378,7 +414,7 @@ def claude_lists(pol):
     return {
         # no native Bash ask rules: one hides the guard's risk label, so the hook is the only Bash wall (guard_problem checks it)
         ("permissions", "ask"): ["mcp__" + t.replace(".", "__") for t in pol.get("ask_mcp_tools", []) if "*" not in t] +
-                                [f"Edit(/{p})" for p in protected_paths(pol)],  # "//" = absolute path in Claude rules
+                                [f"Edit(/{p})" for p in protected_paths(pol)],  # "//" = absolute path in Claude rules; they point at one checkout, so they never matched a worktree copy: the scoped_edit.py hook asks there
         # read-only commands and MCP tools that never need a prompt; ask and deny rules still win over these
         ("permissions", "allow"): [f"Bash({c})" for c in pol.get("allow_commands", [])] +
                                   [f"Bash({c})" for c in push_rules(pol)] +  # the hook still asks on a tainted line: this never widens the guard
@@ -437,6 +473,9 @@ def install_claude(agents_md):
     settings.setdefault("env", {}).setdefault("CLAUDE_CODE_SUBAGENT_MODEL", "sonnet")
     drop_retired_hooks(settings)
     add_hook(settings, "PreToolUse", "Bash|mcp__.*", "policy_guard.py", 10)
+    edits = "Edit|Write|MultiEdit|NotebookEdit"
+    add_hook(settings, "PreToolUse", edits, "scoped_edit.py", 10)  # protected paths inside ticket worktrees: ask once for the scope's paths, always for the rest
+    add_hook(settings, "PostToolUse", edits, "scoped_edit.py", 5)  # an approved first edit becomes the grant
     add_hook(settings, "PreToolUse", "Bash", "action_trace.py", 5)  # logs the commands a policy "trace" rule matches, for the receipt; no rules, no-op
     for event, matcher in (("PostToolUse", "Bash|mcp__.*"), ("PostToolUseFailure", "Bash|mcp__.*"), ("SessionEnd", None), ("SessionStart", None)):
         add_hook(settings, event, matcher, "ask_outcome.py", 5)  # records how a guard ask ended (approved / declined) in actions.log
@@ -460,6 +499,9 @@ def install_claude(agents_md):
         box["enableWeakerNetworkIsolation"] = True
     if json.dumps(settings, sort_keys=True) != before:
         write(path, json.dumps(settings, indent=2, ensure_ascii=False) + "\n")
+    for problem in (worktree_install_problem(pol), scope.hook_problem(settings) or scoped_edit_problem()):
+        if problem:
+            print(f"\n!!! WARNING: {problem}\n", file=sys.stderr)
 
 
 # ---------------------------------------------------------------- OpenCode

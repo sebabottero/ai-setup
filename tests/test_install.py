@@ -43,6 +43,54 @@ class Install(unittest.TestCase):
             self.assertEqual(sum("ask_outcome.py" in h["command"] for g in hooks[event] for h in g["hooks"]), 1, event)
         self.assertTrue(os.path.exists(os.path.join(self.home, ".claude", "hooks", "ask_outcome.py")))
 
+    def test_scoped_edit_hook_is_registered_for_edit_tools_before_and_after(self):
+        hooks = self.load(".claude", "settings.json")["hooks"]
+        for event in ("PreToolUse", "PostToolUse"):
+            hit = [g for g in hooks[event] for h in g["hooks"] if "scoped_edit.py" in h["command"]]
+            self.assertEqual(len(hit), 1, event)
+            for tool in ("Edit", "Write", "MultiEdit", "NotebookEdit"):
+                self.assertIn(tool, hit[0]["matcher"].split("|"), event)
+        self.assertNotIn("PostToolUseFailure", [e for e, gs in hooks.items() if any("scoped_edit.py" in h["command"] for g in gs for h in g["hooks"])])
+        self.assertTrue(os.path.exists(os.path.join(self.home, ".claude", "hooks", "scoped_edit.py")))
+
+    def test_every_protected_path_keeps_its_native_ask_rule(self):
+        sys.path.insert(0, ROOT)
+        import install
+        s = self.load(".claude", "settings.json")
+        pol = install.layerlib.compose_policy(ROOT, install.layerlib.present(ROOT))
+        with mock.patch.object(install, "HOME", self.home):
+            paths = install.protected_paths(pol)
+        self.assertTrue(paths)
+        for p in paths:
+            self.assertIn(f"Edit(/{p})", s["permissions"]["ask"], p)
+        self.assertIn(f"{ROOT}/core/guard/**", s["sandbox"]["filesystem"]["denyWrite"])  # the sandbox wall is untouched
+
+    def test_installing_from_a_ticket_worktree_keeps_every_native_ask_rule_too(self):
+        sys.path.insert(0, ROOT)
+        import install
+        pol = install.layerlib.compose_policy(ROOT, install.layerlib.present(ROOT))
+        for root in (ROOT, os.path.join(self.home, "Dev", "worktrees", "ai-setup", "t9")):  # the main checkout, then a worktree
+            with mock.patch.object(install, "HOME", self.home), mock.patch.object(install, "ROOT", root):
+                paths = install.protected_paths(pol)
+                asks = install.claude_lists(pol)[("permissions", "ask")]
+            self.assertGreaterEqual(len(paths), 10)
+            self.assertEqual([p for p in paths if f"Edit(/{p})" not in asks], [], root)
+
+    def test_installing_from_a_ticket_worktree_is_reported_loudly(self):
+        sys.path.insert(0, ROOT)
+        import install
+        pol = {"dev_root": "~/Dev"}
+        with mock.patch.object(install, "HOME", self.home):
+            for root, bad in ((os.path.join(self.home, "Dev", "worktrees", "ai-setup", "t9"), True),
+                              (os.path.join(self.home, "Dev", "repos", "ai-setup"), False)):
+                with mock.patch.object(install, "ROOT", root):
+                    self.assertEqual(bool(install.worktree_install_problem(pol)), bool(bad), root)
+
+    def test_scope_helper_is_not_excluded_from_the_sandbox(self):
+        # the owner runs `scope.py add` outside the sandbox (a `! ` line); no pattern may let the agent do it
+        excluded = self.load(".claude", "settings.json")["sandbox"]["excludedCommands"]
+        self.assertEqual([e for e in excluded if "scope.py" in e], [])
+
     def test_claude(self):
         s = self.load(".claude", "settings.json")
         commands = [h["command"] for groups in s["hooks"].values() for g in groups for h in g["hooks"]]
@@ -115,6 +163,23 @@ class RetiredHooks(unittest.TestCase):
         self.assertEqual(install(home).returncode, 0)
         with open(path) as f:
             self.assertEqual(f.read(), first)
+
+
+class ScopedEditSelfCheck(unittest.TestCase):
+    def test_the_scoped_edit_hook_passes_the_install_self_check(self):
+        sys.path.insert(0, ROOT)
+        import install
+        self.assertIsNone(install.scoped_edit_problem())
+
+    def test_a_missing_scoped_edit_hook_is_a_problem(self):
+        sys.path.insert(0, ROOT)
+        import install
+        real = install.ADAPTERS
+        install.ADAPTERS = os.path.join(tempfile.mkdtemp(), "nowhere")
+        try:
+            self.assertIsNotNone(install.scoped_edit_problem())
+        finally:
+            install.ADAPTERS = real
 
 
 class GuardCheck(unittest.TestCase):
