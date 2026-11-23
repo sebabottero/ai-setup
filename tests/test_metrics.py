@@ -172,10 +172,65 @@ class Metrics(unittest.TestCase):
         with open(victim) as f:
             self.assertEqual(f.read(), "keep")
 
-    def test_outside_sandbox_section_is_an_empty_marked_hook(self):
-        out = self.build()
-        self.assertIn("## Outside-sandbox commands", out)
-        self.assertIn("criterion 15", out)
+    def outside(self, day, cmd, what="ran", rule="outside-sandbox", risk="MEDIUM", hour=10):
+        return f"2026-11-{day:02d}T{hour:02d}:00:00\ts1\t{risk}\t{what}\t{rule}\t{cmd}"
+
+    def section(self, out):
+        return out.split("## Outside-sandbox commands")[1]
+
+    def test_outside_sandbox_groups_by_head_after_env_cd_and_path_prefixes(self):
+        self.log("actions.log", [
+            self.outside(17, "ls"), self.outside(17, "ls -la"),
+            self.outside(18, "FOO=1 BAR=2 ls x"),
+            self.outside(18, "cd ~/Dev/x && /usr/bin/ls"),
+            self.outside(19, "cd /a; export JAVA_HOME=/b && ./gradlew build"),
+            self.outside(19, "git fetch origin | tail -2"),
+            self.outside(19, "S=/*** python3 - <<'EOF'"),
+        ])
+        sec = self.section(self.build())
+        self.assertIn("| ls | 4 |", sec)
+        self.assertIn("| gradlew | 1 |", sec)
+        self.assertIn("| git | 1 |", sec)
+        self.assertIn("| python3 | 1 |", sec)
+        self.assertIn("Total: 7", sec)
+        self.assertLess(sec.index("| ls | 4 |"), sec.index("| git | 1 |"))
+        self.assertLess(sec.index("| git | 1 |"), sec.index("| gradlew | 1 |"))
+
+    def test_outside_sandbox_counts_only_ran_medium_rule_lines_in_the_week(self):
+        self.log("actions.log", [
+            self.outside(16, "ls", hour=0),            # Monday 00:00: in
+            self.outside(22, "ls", hour=23),           # Sunday: in
+            self.outside(15, "ls", hour=23),           # previous week
+            self.outside(23, "ls", hour=0),            # next week
+            self.outside(18, "ls", what="asked"), self.outside(18, "ls", what="deny"),
+            self.outside(18, "ls", what="approved"),
+            self.outside(18, "ls", rule="git push *"), self.outside(18, "ls", risk="HIGH"),
+            "garbage line", self.outside(18, "ls\textra"),  # a tab inside the command stays in the command
+        ])
+        sec = self.section(self.build())
+        self.assertIn("| ls | 3 |", sec)
+        self.assertIn("Total: 3", sec)
+
+    def test_outside_sandbox_empty_week_and_missing_log_print_none(self):
+        self.log("actions.log", [self.outside(9, "ls")])
+        self.assertIn("none", self.section(self.build()))
+        os.remove(os.path.join(self.dev, "logs", "actions.log"))
+        self.assertIn("none", self.section(self.build()))
+
+    def test_outside_sandbox_top_n_and_other_and_redacted_text_untouched(self):
+        self.log("actions.log", [self.outside(17, f"cmd{i:02d} S=/***") for i in range(20)] + [self.outside(17, "cmd00")])
+        sec = self.section(self.build())
+        self.assertIn("| cmd00 | 2 |", sec)
+        self.assertIn("| cmd14 | 1 |", sec)
+        self.assertNotIn("cmd15", sec)
+        self.assertIn("| other (5 commands) | 5 |", sec)
+        self.assertIn("Total: 21", sec)
+        self.assertNotIn("/***", sec)
+
+    def test_outside_sandbox_unparseable_command_is_named_not_dropped(self):
+        self.log("actions.log", [self.outside(17, "cd /x &&"), self.outside(17, "FOO=1")])
+        sec = self.section(self.build())
+        self.assertIn("| (no command word) | 2 |", sec)
 
     def test_cli_writes_only_the_metrics_file_and_leaves_logs_untouched(self):
         lines = [review(18, 9, "a", 1, 3, "PASS", "nit=1")]
