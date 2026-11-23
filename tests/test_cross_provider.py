@@ -66,6 +66,22 @@ class Wording(unittest.TestCase):
         self.assert_in(TICKET_FLOW, "<branch>.<provider>.r<n>.md")
         self.assert_in(REFERENCE, "<branch>.<provider>.r<n>.md", "a branch named `<x>.<name>` shares that path")
 
+    def test_9_launch_lines_never_put_prompt_text_inside_quotes_for_the_shell(self):
+        """The agent file has backticked spans (`git commit`...): in a double-quoted argument the shell would run them."""
+        for path in (TICKET_FLOW, REFERENCE):
+            text = flat(path)
+            self.assertIn("codex exec --sandbox read-only -", text)
+            self.assertIn("sub-review-xprov.md <brief file> | codex exec", text)
+            self.assertIn("--file <brief file>", text)
+            self.assertNotIn('codex exec --sandbox read-only "', text)
+            self.assertNotIn('"<prompt>"', text)
+            self.assertNotIn('"<brief>"', text)
+            self.assertIn("never as a quoted argument", text)
+            self.assertIn("not verified end to end", text)
+
+    def test_9_the_new_agent_file_is_named_as_new_in_the_docs(self):
+        self.assert_in(REFERENCE, "`core/agents/sub-review-xprov.md` is a new agent file")
+
     def test_9_no_policy_change_is_asked_for(self):
         self.assert_in(TICKET_FLOW, "each one asks for my ok like any other command; nothing here widens the policy")
 
