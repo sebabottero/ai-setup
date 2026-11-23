@@ -107,11 +107,15 @@ def review(ctx):
                     continue
                 sessions += 1
                 reviewed += found
-    reports = sum(len(glob.glob(os.path.join(ctx["dev_root"], "reviews", n, "*.md"))) for n in ctx["names"])
+    # nested folders too (reviews/<repo>/ai/*.md); one report per branch (the newest), earlier rounds <branch>.rN.md apart
+    files = [f for n in ctx["names"] for f in glob.glob(os.path.join(ctx["dev_root"], "reviews", n, "**", "*.md"), recursive=True)]
+    earlier = sum(1 for f in files if re.search(r"\.r\d+\.md$", f))
+    reports = len(files) - earlier
+    extra = f" (+{earlier} earlier rounds)" if earlier else ""
     if not sessions:
-        return "n/a", f"no session logs for '{ctx['names'][0]}' under {pdir}; {reports} review reports"
+        return "n/a", f"no session logs for '{ctx['names'][0]}' under {pdir}; {reports} review reports{extra}"
     return (str(score_from_share(reviewed / sessions)),
-            f"{reviewed} of {sessions} sessions called sub-review; {reports} review reports in reviews/{ctx['names'][0]}/")
+            f"{reviewed} of {sessions} sessions called sub-review; {reports} review reports{extra} in reviews/{ctx['names'][0]}/")
 
 
 # 2 -------------------------------------------------------------------------------------------------
