@@ -74,7 +74,7 @@ Eight layers of a harness, with an honest status. `done` means the evidence path
 | Workflow / agents | done | [`core/skills/ticket-flow/SKILL.md`](core/skills/ticket-flow/SKILL.md) | Ticket to merge, one writer per ticket, two human gates. |
 | Review | done | [`core/agents/sub-review.md`](core/agents/sub-review.md) | Independent reviewer, findings table, round cap, history in `reviews.log`; optional second reviewer from another provider. |
 | Verification | partial | [`core/agents/sub-review.md`](core/agents/sub-review.md) | One test per criterion and CI; the reviewer lists every criterion without a test as "not covered". Partial: an agent does it, not an automatic check. |
-| Observability | partial | [`core/scripts/metrics.py`](core/scripts/metrics.py) | Sessions, guard ask rates, outcome of asks, tokens/turns/time per ticket (`usage_report.py --ticket`) and a weekly view (`metrics.py --week`). Partial: cost per ticket ignores subagent transcripts, so it is understated, and there is no real approval-rate data yet. |
+| Observability | partial | [`core/scripts/metrics.py`](core/scripts/metrics.py) | Sessions, guard ask rates, outcome of asks, tokens/turns/time per ticket (`usage_report.py --ticket`) and a weekly view (`metrics.py --week`) that also lists, by command head, the commands that ran outside the sandbox without asking. Partial: cost per ticket ignores subagent transcripts, so it is understated, and there is no real approval-rate data yet. |
 | Knowledge | done | [`core/skills/session-handoff/SKILL.md`](core/skills/session-handoff/SKILL.md) | Handoffs, per-repo `AGENTS.md` via `repo-guardrails`, a repeated mistake becomes a rule (`meta-setup`, manual). |
 | Recovery | partial | [`backup.sh`](backup.sh) | Backup of the setup and personal files, install backs up what it replaces. No rollback of an agent's edits to your repos. |
 
@@ -115,7 +115,7 @@ Clean: s3 2, s4 1, s5 2, s6 2 (4 branches, average 1.75). s1 is only a lower bou
 
 **Ask approval rate**: no real data yet. The outcome hook (approved / declined per ask) only just merged. Today `AI_SETUP_ACTIONS_LOG=~/Dev/logs/actions.log python3 -I adapters/claude/usage_report.py 30` prints:
 ```console
-Approval rate: n/a (no decided asks); unknown 0, unresolved 1565 (of 1565 asks in the action log, ...)
+Approval rate: n/a (no decided asks); unknown 0, unresolved 1565 (rest of the line abbreviated)
 ```
 
 **Asks and tokens** (`python3 -I adapters/claude/usage_report.py 30`, 2026-11-23; reads only your local files, sends nothing):
