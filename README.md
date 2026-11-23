@@ -93,11 +93,17 @@ The guard is one piece. Around it, the whole loop of working with an AI agent, f
 Details per step in the [cheatsheet](https://sebabottero.github.io/ai-setup/cheatsheet.html#cycle).
 
 ## Measure it
-Example output: the author's own month of use (`python3 -I adapters/claude/usage_report.py 30`; reads only your local transcripts, sends nothing):
+Example output (`python3 -I adapters/claude/usage_report.py 30`; reads only your local files, sends nothing). The three transcript lines are sample numbers; the Guard and ask lines are the real output for a small synthetic `guard.log` and `actions.log`:
 ```console
 Sessions: 149  |  over 150k: 35 (23%)  |  over 300k: 9  |  peak: 772k
 Turns by model: claude-sonnet-5-5 60%, claude-opus-5-5 39%
-Guard: 1233 allowed, 352 asked, 4 denied. Rules that fire most: outside-sandbox 123, git push * 80
+Top tools: Bash 812, Edit 301, Read 255
+Guard (last 30 days): 40 allowed, 20 asked, 0 denied. Rules that fire most: rm-outside-tmp 10, git push * 10
+Asks per day (20 in 10 days with asks, avg 2.0): 11-17 2, 11-18 2, 11-19 2, 11-20 2, 11-21 2, 11-22 2, 11-23 2 (last 7 shown)
+Ask rate per week (asks / guard decisions): 2026-W46 33% (4/12), 2026-W47 33% (14/42), 2026-W48 33% (2/6)
+  guard.log only covers from 2026-11-14 on: earlier days and the first week are partial
+Top ask rules: rm-outside-tmp 10, git push * 10
+Approval rate: 70% (7 approved / 10 decided); unknown 0, unresolved 0 (of 10 asks in the action log, which keeps only notable commands; declined is inferred when the session ends, never guessed for unknown or unresolved)
 ```
 `/coach` before a task (example): model and effort, plus your request rewritten as *goal · done when · out of scope · start from*.
 Every ~30 days `tune-setup` (Claude only) re-tunes it from your own `/insights` data, and edits only after you approve.
