@@ -98,6 +98,10 @@ Example output: the author's own month of use (`python3 -I adapters/claude/usage
 Sessions: 149  |  over 150k: 35 (23%)  |  over 300k: 9  |  peak: 772k
 Turns by model: claude-sonnet-5-5 60%, claude-opus-5-5 39%
 Guard: 1233 allowed, 352 asked, 4 denied. Rules that fire most: outside-sandbox 123, git push * 80
+Asks per day (1486 in 19 days with asks, avg 78.2): 11-18 116, 11-19 165, 11-20 264, ...
+Ask rate per week (asks / guard decisions): 2026-W46 11% (493/4423), 2026-W47 17% (660/3922)
+Top ask rules: protected_paths 370, git push * 328, rm-outside-tmp 302, gh pr merge* 101, inline-code 65
+Approval rate: n/a (no decided asks); unknown 0, unresolved 0 (of 0 asks in the action log, ...)
 ```
 `/coach` before a task (example): model and effort, plus your request rewritten as *goal · done when · out of scope · start from*.
 Every ~30 days `tune-setup` (Claude only) re-tunes it from your own `/insights` data, and edits only after you approve.
