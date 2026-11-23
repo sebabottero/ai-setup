@@ -109,6 +109,33 @@ class Metrics(unittest.TestCase):
         self.assertIn("Triage: defer 2, reject 1", out)
         self.assertNotIn("major 9", out)
 
+    def test_hostile_review_line_cannot_make_git_write_a_file_or_leave_repos(self):
+        repo = os.path.join(self.dev, "repos", "r")
+        os.makedirs(repo)
+        subprocess.run(["git", "-C", repo, "init", "-q"], check=True, capture_output=True)
+        target = os.path.join(self.dev, "pwned.txt")
+        self.log("reviews.log", [review(18, 9, "--output=" + target, 1, 3, "PASS", "nit=1"),
+                                 review(18, 9, "a", 1, 3, "PASS", "nit=1", repo="../../etc"),
+                                 review(18, 9, "a", 1, 3, "PASS", "nit=1", repo="/etc"),
+                                 review(18, 9, "a\x01b", 1, 3, "PASS", "nit=1")])
+        out = self.build()
+        self.assertFalse(os.path.exists(target))
+        self.assertIn("--output=" + target + " n/a", out)
+        self.assertIsNone(metrics.git_commits(os.path.join(self.dev, "repos"), "../../etc", "a", *metrics.week_bounds("2026-W47")))
+        self.assertIsNone(metrics.git_commits(os.path.join(self.dev, "repos"), "/etc", "a", *metrics.week_bounds("2026-W47")))
+
+    def test_a_symlinked_output_file_is_refused(self):
+        victim = os.path.join(self.dev, "victim.txt")
+        with open(victim, "w") as f:
+            f.write("keep")
+        os.symlink(victim, os.path.join(self.dev, "logs", "metrics-2026-W47.md"))
+        env = dict(os.environ, AI_SETUP_GUARD_LOG="off", AI_SETUP_PROJECTS_DIR=self.projects)
+        run = subprocess.run([sys.executable, "-I", SCRIPT, "--week", "2026-W47", "--dev-root", self.dev],
+                             capture_output=True, text=True, env=env)
+        self.assertNotEqual(run.returncode, 0)
+        with open(victim) as f:
+            self.assertEqual(f.read(), "keep")
+
     def test_outside_sandbox_section_is_an_empty_marked_hook(self):
         out = self.build()
         self.assertIn("## Outside-sandbox commands", out)

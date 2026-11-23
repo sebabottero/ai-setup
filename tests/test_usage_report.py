@@ -154,6 +154,26 @@ class TicketReport(unittest.TestCase):
         self.assertIn("no session ids in run.json", self.report("t2"))
         self.assertNotIn("tokens:", self.report("t2"))
 
+    def test_a_message_repeated_on_every_content_block_line_counts_once(self):
+        d = os.path.join(self.projects, "-proj")
+        os.makedirs(d)
+        with open(os.path.join(d, "dup.jsonl"), "w") as f:
+            for block in ({"type": "thinking"}, {"type": "text"}, {"type": "tool_use", "name": "Bash"}):
+                f.write(json.dumps({"type": "assistant", "timestamp": "2026-11-20T10:00:00Z", "message": {
+                    "id": "msg_1", "model": "m", "content": [block],
+                    "usage": {"input_tokens": 10, "cache_read_input_tokens": 90, "output_tokens": 7}}}) + "\n")
+            f.write(json.dumps({"type": "assistant", "message": {"model": "m", "usage": {"input_tokens": 1, "output_tokens": 1}}}) + "\n")
+        s = usage_report.summarize([os.path.join(d, "dup.jsonl")])
+        self.assertEqual((s["turns"], s["input_tokens"], s["output_tokens"]), (2, 101, 8))  # msg_1 once, plus the id-less line
+        self.assertEqual(s["tools"]["Bash"], 1)
+
+    def test_glob_characters_in_a_session_id_match_nothing(self):
+        self.transcript("s1", [("2026-11-20T10:00:00Z", 1, 0, 1), ("2026-11-20T10:10:00Z", 1, 0, 1)])
+        self.run_json("t1", {"ticket": "t1", "sessions": ["*", "s?", "../x", "s[1]"]})
+        out = self.report()
+        self.assertIn("sessions: 0 of 4 with a transcript", out)
+        self.assertNotIn("tokens:", out)
+
     def test_no_run_json(self):
         self.assertIn("no run.json at", self.report("nope"))
 

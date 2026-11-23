@@ -4,7 +4,7 @@ run the turns, which tools dominate. Reads ~/.claude/projects only; sends nothin
 Usage: python3 -I adapters/claude/usage_report.py [days]   (default: all transcripts)
        python3 -I adapters/claude/usage_report.py --ticket <slug> [--dev-root DIR]
            tokens, turns and wall time of the sessions listed in <dev root>/handoffs/<slug>/run.json"""
-import argparse, collections, datetime, glob, json, os, sys, time
+import argparse, collections, datetime, glob, json, os, re, sys, time
 
 LIMIT = 150_000
 TOKEN_KEYS = ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
@@ -15,6 +15,7 @@ def summarize(paths):
     contexts, output, total_in = [], 0, 0
     for path in paths:
         peak = 0
+        by_id = {}  # Claude Code repeats one message (same id and usage) on every content-block line: count each id once
         with open(path, errors="ignore") as f:
             lines = f.readlines()
         for line in lines:
@@ -27,14 +28,20 @@ def summarize(paths):
                 continue
             usage = msg.get("usage")
             if usage and d.get("type") == "assistant":
-                used = sum(usage.get(k, 0) for k in TOKEN_KEYS)
-                peak = max(peak, used)
-                total_in += used
-                output += usage.get("output_tokens", 0)
-                models[msg.get("model", "?")] += 1
+                turn = (sum(usage.get(k, 0) for k in TOKEN_KEYS), usage.get("output_tokens", 0), msg.get("model", "?"))
+                mid = msg.get("id")
+                if not mid:
+                    by_id[object()] = turn  # no id: every line is its own turn
+                elif mid not in by_id or turn[1] >= by_id[mid][1]:
+                    by_id[mid] = turn  # the fullest usage (last output count) of that message
             for block in msg.get("content") if isinstance(msg.get("content"), list) else []:
                 if isinstance(block, dict) and block.get("type") == "tool_use":
                     tools[block.get("name", "?")] += 1
+        for used, out, model in by_id.values():
+            peak = max(peak, used)
+            total_in += used
+            output += out
+            models[model] += 1
         if peak:
             contexts.append(peak)
     return {"sessions": len(contexts), "over_150k": sum(c > LIMIT for c in contexts),
@@ -204,10 +211,11 @@ def run_usage(run, projects=None):
     """Cost of the sessions in one run record (a dict). Never guesses: sessions without an id in the record, or without a
     transcript under projects/*/<id>.jsonl, are listed apart and add nothing. Returns a dict."""
     projects = projects or projects_dir()
-    ids = [i for i in run.get("sessions") or [] if isinstance(i, str) and i and os.path.basename(i) == i]
+    ids = [i for i in run.get("sessions") or [] if isinstance(i, str) and i]
     found, missing = {}, []
     for i in ids:
-        hit = sorted(glob.glob(os.path.join(glob.escape(projects), "*", i + ".jsonl")))
+        # only plain ids reach the glob: '*' or '/' in a run.json value must not match other transcripts
+        hit = sorted(glob.glob(os.path.join(glob.escape(projects), "*", i + ".jsonl"))) if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", i) else []
         if hit:
             found[i] = hit[0]
         else:

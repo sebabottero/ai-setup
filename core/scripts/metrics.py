@@ -74,12 +74,16 @@ def rounds_to_pass(entries, start, end):
 
 def git_commits(repos_dir, repo, branch, start, end):
     """Commits of the branch in the week (git log, read only); None when the repo or branch is not there."""
+    # both come from a log line: the repo must be a plain folder name under repos/, the branch must not look like an option
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", repo or "") or repo == ".." or not branch or branch.startswith("-") \
+            or re.search(r"[\x00-\x1f\x7f ]", branch):
+        return None
     path = os.path.join(repos_dir, repo)
-    if not os.path.isdir(path):
+    if not os.path.isdir(path) or os.path.islink(path):
         return None
     try:
         run = subprocess.run(["git", "-C", path, "log", "--oneline", f"--since={start.isoformat()}",
-                              f"--until={end.isoformat()}", branch, "--"], capture_output=True, text=True, timeout=10)
+                              f"--until={end.isoformat()}", "--end-of-options", branch, "--"], capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.TimeoutExpired):
         return None
     return len(run.stdout.split("\n")) - 1 if run.returncode == 0 else None
@@ -211,6 +215,8 @@ def main(argv=None):
     logs = os.path.join(os.path.expanduser(dev_root), "logs")
     os.makedirs(logs, exist_ok=True)
     path = os.path.join(logs, f"metrics-{label}.md")
+    if os.path.islink(path):
+        ap.error(f"{path} is a symlink; refusing to write through it")
     with open(path, "w", encoding="utf-8") as f:
         f.write(text + "\n")
     print(path)
