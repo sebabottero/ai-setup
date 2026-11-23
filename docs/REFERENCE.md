@@ -26,6 +26,7 @@ Missing: which environment fails? (default: local)
 `tune-setup` closes the loop: every ~30 days it reads your `/insights` data and proposes a diff to re-tune `coach`, the notice thresholds and `grillme`. It edits only after you approve.
 
 ## Limits
+- **One ask per edit of a protected path.** By design: the `Edit(<path>)` ask rules are Claude Code's own and a hook `allow` does not lift them (see `DESIGN.md` 6). To see how often it happens, run `python3 adapters/claude/usage_report.py N` (asks per day, approval rate).
 - **macOS first.** Linux works for the guard, the installer and the tests (CI runs Ubuntu); `bootstrap.py` lists the brew packages
   for your own package manager instead of installing them. No Windows.
 - **A seatbelt, not a wall.** The guard now judges what is inside `bash -c`, `eval`, `curl ... | sh` and inline `python -c`
