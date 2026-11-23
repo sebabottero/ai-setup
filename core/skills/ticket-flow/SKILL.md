@@ -101,6 +101,8 @@ goal, the contract's allowlist (reject what falls outside), out of scope, how to
 - `sub-review` on the diff against `plan.md` (and the `pr-review-ticket` skill if there is a ticket). It still compares against `plan.md`; its brief gives the exact `log --stage 3` command so the round is logged with that stage;
   stage 4 re-reviews the committed change against `criteria.md`. The two reviews cover different angles: plan (stage 3) vs criteria (stage 4).
 - If something fails: back to the writer, fix and validate again. **At most 2 rounds**; if it still fails, stop at the gate.
+- **Round cap (stages 3 and 4).** After each round, run `python3 -I {{AI_SETUP}}/core/guard/review_report.py rounds --dir <worktree> --stage <3|4>`.
+  It prints `stage=N rounds=R open=O stop=yes|no`, read from `reviews.log`. If the branch still has `blocking` or `major` findings after 2 review rounds in one stage (`stop=yes`), do not start round 3: ask me at the next gate what to do, showing the open findings and their triage.
 
 ## ⛔ GATE 2: handover
 A single message with:
@@ -118,11 +120,12 @@ Write its report with `python3 -I {{AI_SETUP}}/core/guard/review_report.py` so t
 The report path is the same `<dev root>/reviews/<repo>/<branch>.md`: it overwrites the stage 3 report (intended; the merge gate reads the newest), but `header` first keeps that one as `<branch>.r<N>.md`. The brief gives the exact command `python3 -I {{AI_SETUP}}/core/guard/review_report.py log --dir <worktree> --stage 4` to run once the report is written (the one thing the brief carries besides the three items below).
 - Short route (tier low): the same re-review applies against the 1-3 line `criteria.md`.
 - Apart from that command, the brief carries only the commit, the path to `criteria.md` and the report path, plus "slice K" as a scope pointer when `criteria.md` has `## Slices`; no summary of what was built or what passed.
-- Critical or Warning: stop and show it. I decide whether a fix commit goes in the same PR; nothing is fixed or pushed on its own.
+- blocking or major: stop and show it. I decide whether a fix commit goes in the same PR; nothing is fixed or pushed on its own.
   A fix commit in the same PR makes the report's Tree stale, so stage 4 re-runs on the new commit before posting.
   This is the one exception to "no intermediate commits": a stage 4 fix commit the user approves.
 - When the result is ready, ask my OK at Gate 2 to post it as a comment on the PR, with `gh pr comment` and only after my OK.
   Nits go in that comment and do not block.
+  The round cap of stage 3 applies here too: run `review_report.py rounds --stage 4` before re-running the review; on `stop=yes` ask me at the next gate instead.
   The result and this OK arrive in a follow-up Gate 2 message after the PR; that ask is part of Gate 2.
 - Only after stage 4 is done (and any fix-commit decision), if you created the worktree, delete it (leave alone any worktree a workspace manager created).
 

@@ -58,7 +58,7 @@ class SmallPrs(unittest.TestCase):
         )
 
     def test_6_sub_review_flags_diff_outside_slice_or_mixing_topics(self):
-        self.assert_all(SUB_REVIEW, "outside its slice", "mixes topics", "is a finding (warning)")
+        self.assert_all(SUB_REVIEW, "outside its slice", "mixes topics", "is a finding (major)")
 
 
 if __name__ == "__main__":

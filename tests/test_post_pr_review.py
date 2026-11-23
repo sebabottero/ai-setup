@@ -24,9 +24,9 @@ class PostPrReview(unittest.TestCase):
             "only slice k's criteria", "python3 -i {{ai_setup}}/core/guard/review_report.py", "tree hash matches the commit",
         )
 
-    def test_2_critical_or_warning_stops_and_user_decides(self):
+    def test_2_blocking_or_major_stops_and_user_decides(self):
         self.assert_all(
-            "critical or warning: stop and show it", "whether a fix commit goes in the same pr", "nothing is fixed or pushed on its own",
+            "blocking or major: stop and show it", "whether a fix commit goes in the same pr", "nothing is fixed or pushed on its own",
         )
 
     def test_3_ok_at_gate_2_to_post_comment_nits_do_not_block(self):

@@ -7,8 +7,11 @@
     newest stays at <branch>.md; running header again without a new report in between adds nothing.
   python3 -I review_report.py log --stage 3|4 [--dir D] [--dev-root DIR]
     appends one line to <dev_root>/logs/reviews.log (tab separated: time, repo, branch, round, stage, verdict, findings
-    per severity) from the report just written. Old (Critical/Warning/Nit) and new (blocking/major/minor/nit) severities
-    are read from the issues table as written.
+    per severity, triage counts) from the report just written. Severities are read from the issues table's severity column:
+    new (blocking/major/minor/nit) and old (Critical/Warning/Nit); triage (fix_now/defer/reject) from its triage column.
+  python3 -I review_report.py rounds --stage 3|4 [--dir D] [--dev-root DIR]
+    prints `stage=N rounds=R open=O stop=yes|no` for the branch, from reviews.log: rounds logged for that stage, blocking +
+    major findings of the last one; stop=yes (2+ rounds and still open) means ticket-flow must not start another round.
 
 A report is fresh when its `Commit:` is the branch head, or its `Tree:` is the head's tree (work reviewed before it was committed).
 """
@@ -89,16 +92,44 @@ def archive(path):
 
 
 SEVERITIES = ["critical", "warning", "blocking", "major", "minor", "nit"]
+TRIAGES = ["fix_now", "defer", "reject"]
+OPEN = {"blocking", "major", "critical", "warning"}  # what keeps a round open; critical / warning are the old words
+
+
+def table_rows(text):
+    """(severity, triage) of each data row of the issues tables. A header row (the one before a `---` row) is skipped; its
+    `severity` / `triage` cells say which columns to read (default: severity first, no triage, as in old reports)."""
+    lines = [l.strip() for l in text.splitlines()]
+    sev, tri = 0, None
+    for i, line in enumerate(lines):
+        if not line.startswith("|"):
+            sev, tri = 0, None
+            continue
+        cells = [c.strip().strip("*_` ").lower() for c in line.strip("|").split("|")]
+        if all(re.fullmatch(r":?-{3,}:?", c.replace(" ", "")) for c in cells if c) and any(cells):
+            continue
+        if i + 1 < len(lines) and lines[i + 1].startswith("|") and re.fullmatch(r"[|\s:-]+", lines[i + 1]):
+            sev = cells.index("severity") if "severity" in cells else 0
+            tri = cells.index("triage") if "triage" in cells else None
+            continue
+        if sev < len(cells) and cells[sev] in SEVERITIES:
+            yield cells[sev], cells[tri] if tri is not None and tri < len(cells) else ""
 
 
 def findings(text):
-    """{severity: count} from the first cell of the issues table rows; any other row is ignored."""
+    """{severity: count} from the severity column of the issues table rows; headers and any other row are ignored."""
     found = {}
-    for line in text.splitlines():
-        if line.lstrip().startswith("|"):
-            cell = line.strip().strip("|").split("|")[0].strip().strip("*_ ").lower()
-            if cell in SEVERITIES:
-                found[cell] = found.get(cell, 0) + 1
+    for severity, _ in table_rows(text):
+        found[severity] = found.get(severity, 0) + 1
+    return found
+
+
+def triage(text):
+    """{fix_now|defer|reject: count} from the triage column of the issues table; old reports have none."""
+    found = {}
+    for _, value in table_rows(text):
+        if value in TRIAGES:
+            found[value] = found.get(value, 0) + 1
     return found
 
 
@@ -110,18 +141,35 @@ def log(directory, dev_root, stage):
     text = read(path)
     if not text.strip():
         sys.exit(f"error: no report to log at {path}; write it first")
-    counts = findings(text)
+    counts, picked = findings(text), triage(text)
     found = " ".join(f"{k}={counts[k]}" for k in SEVERITIES if k in counts) or "none"
+    sorted_out = " ".join(f"{k}={picked[k]}" for k in TRIAGES if k in picked) or "none"
     kept = rounds(path)
     # header copies the old report to rN before the new one is written: a report equal to the newest rN is still that round
     number = max(kept) if kept and read(kept[max(kept)]) == text else len(kept) + 1
+    # fields are append-only: new ones go at the end (triage counts came after the findings)
     line = "\t".join([datetime.datetime.now().isoformat(timespec="seconds"), repo, branch, str(number),
-                      str(stage), parse(text)["verdict"] or "?", found])
+                      str(stage), parse(text)["verdict"] or "?", found, sorted_out])
     logs = os.path.join(os.path.expanduser(dev_root), "logs")
     os.makedirs(logs, exist_ok=True)
     with open(os.path.join(logs, "reviews.log"), "a", encoding="utf-8") as f:
         f.write(line + "\n")
     return line
+
+
+def stage_rounds(directory, dev_root, stage):
+    """`stage=N rounds=R open=O stop=yes|no` for this branch from reviews.log: R distinct rounds logged for the stage, O the
+    blocking + major findings (old critical + warning too) of the last of them; stop=yes when R >= 2 and O > 0."""
+    branch = git(directory, "symbolic-ref", "-q", "--short", "HEAD") or "HEAD"
+    repo = repo_name(directory) or "?"
+    seen = {}
+    for entry in read(os.path.join(os.path.expanduser(dev_root), "logs", "reviews.log")).splitlines():
+        f = entry.split("\t")
+        if len(f) >= 7 and f[1] == repo and f[2] == branch and f[4] == str(stage):
+            seen[f[3]] = f[6]  # a round logged twice counts once; the later line wins
+    last = seen[max(seen, key=lambda n: int(n) if n.isdigit() else 0)] if seen else ""
+    open_ = sum(int(n) for k, n in re.findall(r"(\w+)=(\d+)", last) if k in OPEN)
+    return f"stage={stage} rounds={len(seen)} open={open_} stop={'yes' if len(seen) >= 2 and open_ else 'no'}"
 
 
 def header(directory, dev_root, verdict=""):
@@ -141,7 +189,7 @@ def header(directory, dev_root, verdict=""):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("command", choices=["header", "log"])
+    ap.add_argument("command", choices=["header", "log", "rounds"])
     ap.add_argument("--stage", choices=["3", "4"])
     ap.add_argument("--dir", default=".")
     ap.add_argument("--dev-root")
@@ -154,9 +202,12 @@ def main():
             dev_root = layers.dev_root(guard.load())
         except Exception:
             dev_root = "~"
+    if args.command in ("log", "rounds") and not args.stage:
+        ap.error(f"{args.command} needs --stage 3|4")
+    if args.command == "rounds":
+        print(stage_rounds(args.dir, dev_root, args.stage))
+        return
     if args.command == "log":
-        if not args.stage:
-            ap.error("log needs --stage 3|4")
         print(log(args.dir, dev_root, args.stage))
         return
     print(header(args.dir, dev_root, args.verdict))

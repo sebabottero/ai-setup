@@ -1452,9 +1452,54 @@ class MergeGate(unittest.TestCase):
         lines = open(log).read().splitlines()
         self.assertEqual(len(lines), 2)
         first, second = [l.split("\t") for l in lines]
-        self.assertEqual(first[3:], ["1", "3", "NEEDS CHANGES", "critical=1 warning=1 nit=1"])
-        self.assertEqual(second[3:], ["2", "4", "PASS", "major=1 nit=2"])
+        self.assertEqual(first[3:], ["1", "3", "NEEDS CHANGES", "critical=1 warning=1 nit=1", "none"])
+        self.assertEqual(second[3:], ["2", "4", "PASS", "major=1 nit=2", "fix_now=1 defer=1 reject=1"])
         self.assertEqual(first[2], second[2])
+
+    def test_a_header_row_starting_with_a_severity_word_is_not_counted(self):
+        import review_report
+        text = "| Nit | where | problem |\n|---|---|---|\n| Nit | a:1 | x |\n\n| major | triage | reason |\n| --- | --- | --- |\n| major | fix_now | y |\n"
+        self.assertEqual(review_report.findings(text), {"nit": 1, "major": 1})
+
+    def test_triage_is_counted_from_the_triage_column_wherever_it_sits(self):
+        import review_report
+        text = ("| file:line | severity | triage | reason |\n|---|---|---|---|\n"
+                "| a:1 | blocking | fix_now | x |\n| b:2 | minor | `defer` | y |\n| c:3 | nit | Reject | z |\n| d:4 | nit | maybe | w |\n")
+        self.assertEqual(review_report.findings(text), {"blocking": 1, "minor": 1, "nit": 2})
+        self.assertEqual(review_report.triage(text), {"fix_now": 1, "defer": 1, "reject": 1})
+
+    def write_round(self, text, stage):
+        path = self.review_cli("header", "--dir", self.repo, "--dev-root", self.dev).stdout.splitlines()[0]
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(text)
+        run = self.review_cli("log", "--dir", self.repo, "--dev-root", self.dev, "--stage", stage)
+        self.assertEqual(run.returncode, 0, run.stderr)
+
+    def rounds_cli(self, stage):
+        return self.review_cli("rounds", "--dir", self.repo, "--dev-root", self.dev, "--stage", stage)
+
+    def test_rounds_counts_a_stage_and_reports_open_blocking_and_major_of_the_last_round(self):
+        table = "| severity | triage | reason |\n|---|---|---|\n{}"
+        self.assertEqual(self.rounds_cli("3").stdout.strip(), "stage=3 rounds=0 open=0 stop=no")  # no log yet
+        self.write_round(table.format("| blocking | fix_now | x |\n| major | defer | y |\n"), "3")
+        self.assertEqual(self.rounds_cli("3").stdout.strip(), "stage=3 rounds=1 open=2 stop=no")
+        self.write_round(table.format("| major | fix_now | y |\n| nit | reject | z |\n"), "3")
+        self.assertEqual(self.rounds_cli("3").stdout.strip(), "stage=3 rounds=2 open=1 stop=yes")  # round 3 must not start
+        self.assertEqual(self.rounds_cli("4").stdout.strip(), "stage=4 rounds=0 open=0 stop=no")  # stages count apart
+        self.write_round(table.format("| minor | defer | z |\n"), "3")
+        self.assertEqual(self.rounds_cli("3").stdout.strip(), "stage=3 rounds=3 open=0 stop=no")
+
+    def test_rounds_reads_old_lines_and_counts_each_round_once(self):
+        self.write_round("Verdict: FAIL\n| Critical | a:1 | x |\n", "4")
+        self.write_round("Verdict: FAIL\n| Warning | a:1 | x |\n", "4")
+        self.assertEqual(self.rounds_cli("4").stdout.strip(), "stage=4 rounds=2 open=1 stop=yes")
+        log = os.path.join(self.dev, "logs", "reviews.log")
+        with open(log) as f:
+            lines = f.read().splitlines()
+        with open(log, "a") as f:
+            f.write(lines[-1] + "\n")  # the same round logged twice
+        self.assertEqual(self.rounds_cli("4").stdout.strip(), "stage=4 rounds=2 open=1 stop=yes")
 
     def test_parse_reads_bullets_bold_and_whole_values(self):
         import review_report
