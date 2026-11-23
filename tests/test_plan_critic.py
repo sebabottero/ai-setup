@@ -46,6 +46,14 @@ class PlanCritic(unittest.TestCase):
             "gate 1 mentions the critic only for unresolved findings",
         )
 
+    def test_4b_orchestrator_always_saves_critic_findings(self):
+        self.assert_in(
+            TICKET_FLOW,
+            "the orchestrator always saves that text to `<dev root>/handoffs/<ticket>/plan-critic.md`",
+            "the critic stays read-only and writes no file",
+        )
+        self.assertNotIn("if you want to keep it", flat(TICKET_FLOW))
+
     def test_5_sub_review_step_5_is_conditional_on_the_brief(self):
         self.assert_in(
             SUB_REVIEW,
