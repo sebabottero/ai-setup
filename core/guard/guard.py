@@ -1221,30 +1221,41 @@ def actions_log_path(policy=None):
     return os.path.expanduser(os.path.join(dev, "logs", "actions.log"))
 
 
-def log_action(event, decision, risk, rule, reason=""):
-    """One line per notable command in AI_SETUP_ACTIONS_LOG (default <dev_root>/logs/actions.log; "off" disables): time,
-    session, risk, what happened (ran / asked / denied), rule, redacted command. The task receipt reads it."""
+def action_text(event, reason=""):
+    """What the action log shows of the command: redacted, one line; a merge the gate let through names the report it found."""
+    text = redact(event.get("command", "")) if event.get("tool") == "bash" else event.get("name", "?")
+    tag = REPORT_TAG.search(reason)
+    return text + " " + tag.group(0) if tag else text
+
+
+def write_action_line(session, risk, what, rule, text):
+    """Append one line to the action log: time, session, RISK, what, rule, text. Never raises."""
     path = actions_log_path()
     if path == "off":
         return
-    what = {"allow": "ran", "ask": "asked"}.get(decision, decision)
-    text = redact(event.get("command", "")) if event.get("tool") == "bash" else event.get("name", "?")
-    tag = REPORT_TAG.search(reason)
-    if tag:  # a merge the gate let through to the user names the report it found
-        text += " " + tag.group(0)
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         if os.path.exists(path) and os.path.getsize(path) > 1_000_000:
             os.replace(path, path + ".1")
         with open(path, "a") as f:
-            f.write("\t".join([datetime.datetime.now().isoformat(timespec="seconds"), event.get("session") or "?",
+            f.write("\t".join([datetime.datetime.now().isoformat(timespec="seconds"), session or "?",
                                risk.upper(), what, rule, text]) + "\n")
     except OSError:
         pass
 
 
-def decide(event, policy=None, log=False):
-    """(decision, reason). log=True is for the adapters that answer a real agent; tests and callers stay quiet."""
+def log_action(event, decision, risk, rule, reason=""):
+    """One line per notable command in AI_SETUP_ACTIONS_LOG (default <dev_root>/logs/actions.log; "off" disables): time,
+    session, risk, what happened (ran / asked / denied), rule, redacted command. The task receipt reads it.
+    Later lines with the same session and command may say how an ask ended: approved / declined / unknown (outcomes.py)."""
+    what = {"allow": "ran", "ask": "asked"}.get(decision, decision)
+    write_action_line(event.get("session"), risk, what, rule, action_text(event, reason))
+
+
+def decide(event, policy=None, log=False, outcome=None):
+    """(decision, reason). log=True is for the adapters that answer a real agent; tests and callers stay quiet.
+    An ask that carries a tool_use_id leaves a pending marker (outcomes.py) so a later hook can record how it ended;
+    outcome="unknown" is for an adapter that never hears the answer: the ask is followed by that line at once."""
     policy = policy or load()
     decision, reason, rule = judge(event, policy)
     reason = labelled(decision, reason, rule)
@@ -1253,12 +1264,19 @@ def decide(event, policy=None, log=False):
         hit = notable(event, policy, decision, rule)
         if hit:
             log_action(event, decision, *hit, reason)
+            if decision == "ask":
+                import outcomes
+                text = action_text(event, reason)
+                if event.get("tool_use_id"):
+                    outcomes.write_marker(event["tool_use_id"], event.get("session"), hit[0], hit[1], text)
+                if outcome:
+                    write_action_line(event.get("session"), hit[0], outcome, hit[1], text)
     return decision, reason
 
 
 def main():
     try:
-        decision, reason = decide(json.load(sys.stdin), log=True)
+        decision, reason = decide(json.load(sys.stdin), log=True, outcome="unknown")  # the OpenCode plugin never learns the answer
     except Exception as exc:  # a broken guard must not silently allow: ask instead
         decision, reason = "ask", f"policy guard failed ({exc}); confirm manually"
     print(json.dumps({"decision": decision, "reason": reason}))
