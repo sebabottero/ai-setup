@@ -1,4 +1,4 @@
-import contextlib, datetime, io, os, sys, tempfile, unittest
+import contextlib, datetime, io, json, os, subprocess, sys, tempfile, unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "adapters", "claude"))
@@ -109,6 +109,86 @@ class Main(unittest.TestCase):
 
     def test_main_without_days_says_all_time(self):
         self.assertIn("Guard (all time): 1 allowed, 2 asked, 1 denied.", self.run_main(None))
+
+
+class TicketReport(unittest.TestCase):
+    def setUp(self):
+        self.dev = tempfile.mkdtemp(dir=TMP.name)
+        self.projects = tempfile.mkdtemp(dir=TMP.name)
+
+    def transcript(self, session, turns):
+        """turns: [(timestamp, input, cache_read, output)] assistant turns of one session."""
+        d = os.path.join(self.projects, "-proj")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, session + ".jsonl"), "w") as f:
+            for ts, i, c, o in turns:
+                f.write(json.dumps({"type": "assistant", "timestamp": ts, "message": {
+                    "model": "m", "usage": {"input_tokens": i, "cache_read_input_tokens": c, "output_tokens": o}}}) + "\n")
+
+    def run_json(self, slug, run):
+        os.makedirs(os.path.join(self.dev, "handoffs", slug))
+        with open(os.path.join(self.dev, "handoffs", slug, "run.json"), "w") as f:
+            json.dump(run, f)
+
+    def report(self, slug="t1"):
+        return "\n".join(usage_report.ticket_report(slug, self.dev, self.projects))
+
+    def test_prints_tokens_turns_and_wall_time_of_the_ticket_sessions(self):
+        self.transcript("s1", [("2026-11-20T10:00:00Z", 100, 400, 50), ("2026-11-20T10:30:00Z", 10, 0, 40)])
+        self.transcript("s2", [("2026-11-20T12:00:00Z", 5, 5, 5), ("2026-11-20T12:15:00Z", 0, 0, 5)])
+        self.transcript("other", [("2026-11-20T10:00:00Z", 999, 999, 999)])
+        self.run_json("t1", {"ticket": "t1", "sessions": ["s1", "s2"], "branch": "ai/x", "start": "2026-11-20T09:00:00", "end": None})
+        out = self.report()
+        self.assertIn("sessions: 2 of 2 with a transcript", out)
+        self.assertIn("tokens: 620 (520 input incl. cache, 100 output)", out)
+        self.assertIn("turns: 4", out)
+        self.assertIn("wall time: 45m", out)
+
+    def test_missing_transcript_and_missing_ids_are_said_not_guessed(self):
+        self.transcript("s1", [("2026-11-20T10:00:00Z", 1, 0, 1), ("2026-11-20T10:10:00Z", 1, 0, 1)])
+        self.run_json("t1", {"ticket": "t1", "sessions": ["s1", "gone"]})
+        out = self.report()
+        self.assertIn("sessions: 1 of 2 with a transcript", out)
+        self.assertIn("no transcript for: gone (not counted)", out)
+        self.run_json("t2", {"ticket": "t2", "sessions": []})
+        self.assertIn("no session ids in run.json", self.report("t2"))
+        self.assertNotIn("tokens:", self.report("t2"))
+
+    def test_a_message_repeated_on_every_content_block_line_counts_once(self):
+        d = os.path.join(self.projects, "-proj")
+        os.makedirs(d)
+        with open(os.path.join(d, "dup.jsonl"), "w") as f:
+            for block in ({"type": "thinking"}, {"type": "text"}, {"type": "tool_use", "name": "Bash"}):
+                f.write(json.dumps({"type": "assistant", "timestamp": "2026-11-20T10:00:00Z", "message": {
+                    "id": "msg_1", "model": "m", "content": [block],
+                    "usage": {"input_tokens": 10, "cache_read_input_tokens": 90, "output_tokens": 7}}}) + "\n")
+            f.write(json.dumps({"type": "assistant", "message": {"model": "m", "usage": {"input_tokens": 1, "output_tokens": 1}}}) + "\n")
+        s = usage_report.summarize([os.path.join(d, "dup.jsonl")])
+        self.assertEqual((s["turns"], s["input_tokens"], s["output_tokens"]), (2, 101, 8))  # msg_1 once, plus the id-less line
+        self.assertEqual(s["tools"]["Bash"], 1)
+
+    def test_glob_characters_in_a_session_id_match_nothing(self):
+        self.transcript("s1", [("2026-11-20T10:00:00Z", 1, 0, 1), ("2026-11-20T10:10:00Z", 1, 0, 1)])
+        self.run_json("t1", {"ticket": "t1", "sessions": ["*", "s?", "../x", "s[1]"]})
+        out = self.report()
+        self.assertIn("sessions: 0 of 4 with a transcript", out)
+        self.assertNotIn("tokens:", out)
+
+    def test_no_run_json(self):
+        self.assertIn("no run.json at", self.report("nope"))
+
+    def test_cli_ticket_and_positional_days_still_work(self):
+        self.run_json("t1", {"ticket": "t1", "sessions": []})
+        script = os.path.join(ROOT, "adapters", "claude", "usage_report.py")
+        env = dict(os.environ, AI_SETUP_PROJECTS_DIR=self.projects)
+        run = subprocess.run([sys.executable, "-I", script, "--ticket", "t1", "--dev-root", self.dev],
+                             capture_output=True, text=True, env=env)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("Ticket t1", run.stdout)
+        days = subprocess.run([sys.executable, "-I", script, "30"], capture_output=True, text=True,
+                              env=dict(env, HOME=self.dev, AI_SETUP_GUARD_LOG="off", AI_SETUP_ACTIONS_LOG=os.path.join(self.dev, "a.log")))
+        self.assertEqual(days.returncode, 0, days.stderr)
+        self.assertIn("Sessions:", days.stdout)
 
 
 if __name__ == "__main__":
