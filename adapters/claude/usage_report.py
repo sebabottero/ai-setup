@@ -72,10 +72,14 @@ def _guard_log_path():
 
 
 def _when(text):
+    """Naive local time of an ISO string; a timezone-aware one is converted, so every time compares with every other."""
+    if not isinstance(text, str):
+        return None
     try:
-        return datetime.datetime.fromisoformat(text)
+        when = datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
         return None
+    return when.astimezone().replace(tzinfo=None) if when.tzinfo else when
 
 
 def guard_decisions(path=None, since=None):
@@ -189,9 +193,9 @@ def wall_seconds(path):
                 d = json.loads(line)
             except ValueError:
                 continue
-            when = _when(d["timestamp"].replace("Z", "+00:00")) if isinstance(d, dict) and isinstance(d.get("timestamp"), str) else None
+            when = _when(d.get("timestamp")) if isinstance(d, dict) else None
             if when:
-                stamps.append(when if when.tzinfo else when.replace(tzinfo=datetime.timezone.utc))
+                stamps.append(when)
     return (max(stamps) - min(stamps)).total_seconds() if len(stamps) > 1 else None
 
 
@@ -211,7 +215,7 @@ def run_usage(run, projects=None):
     """Cost of the sessions in one run record (a dict). Never guesses: sessions without an id in the record, or without a
     transcript under projects/*/<id>.jsonl, are listed apart and add nothing. Returns a dict."""
     projects = projects or projects_dir()
-    ids = [i for i in run.get("sessions") or [] if isinstance(i, str) and i]
+    ids = [i for i in run.get("sessions") if isinstance(i, str) and i] if isinstance(run.get("sessions"), list) else []
     found, missing = {}, []
     for i in ids:
         # only plain ids reach the glob: '*' or '/' in a run.json value must not match other transcripts

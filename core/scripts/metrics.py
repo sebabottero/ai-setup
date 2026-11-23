@@ -73,7 +73,8 @@ def rounds_to_pass(entries, start, end):
 
 
 def git_commits(repos_dir, repo, branch, start, end):
-    """Commits of the branch in the week (git log, read only); None when the repo or branch is not there."""
+    """The branch's own commits in the week (git log origin/main..branch, else main..branch; read only); None when the
+    repo, the branch or the base ref is not there: never the full history."""
     # both come from a log line: the repo must be a plain folder name under repos/, the branch must not look like an option
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", repo or "") or repo == ".." or not branch or branch.startswith("-") \
             or re.search(r"[\x00-\x1f\x7f ]", branch):
@@ -82,27 +83,43 @@ def git_commits(repos_dir, repo, branch, start, end):
     if not os.path.isdir(path) or os.path.islink(path):
         return None
     try:
+        base = None
+        for ref in ("origin/main", "main"):  # the branch's own commits are the ones its base does not have
+            if subprocess.run(["git", "-C", path, "rev-parse", "--verify", "--quiet", "--end-of-options", ref + "^{commit}"],
+                              capture_output=True, timeout=10).returncode == 0:
+                base = ref
+                break
+        if base is None or branch == base:
+            return None
         run = subprocess.run(["git", "-C", path, "log", "--oneline", f"--since={start.isoformat()}",
-                              f"--until={end.isoformat()}", "--end-of-options", branch, "--"], capture_output=True, text=True, timeout=10)
+                              f"--until={end.isoformat()}", "--end-of-options", f"{base}..{branch}", "--"],
+                             capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.TimeoutExpired):
         return None
     return len(run.stdout.split("\n")) - 1 if run.returncode == 0 else None
 
 
 def run_records(dev_root):
-    out = []
+    """([(ticket, run)], skipped): a run.json that is not a JSON object, or whose start is not a parseable string, is skipped."""
+    out, skipped = [], 0
     for path in sorted(glob.glob(os.path.join(glob.escape(dev_root), "handoffs", "*", "run.json"))):
         run = run_json.load(path)
-        if run:
-            out.append((os.path.basename(os.path.dirname(path)), run))
-    return out
+        if run is None or usage_report._when(run.get("start")) is None:
+            skipped += 1
+            continue
+        out.append((os.path.basename(os.path.dirname(path)), run))
+    return out, skipped
 
 
 def in_week(run, start, end):
     """A run belongs to the week when it overlapped it: started before the end and not finished before the start."""
-    begin = usage_report._when(run.get("start") or "")
-    finish = usage_report._when(run.get("end") or "")
-    return bool(begin) and begin < end and (finish is None or finish >= start)
+    begin = usage_report._when(run.get("start"))
+    finish = usage_report._when(run.get("end"))  # a missing or unreadable end counts as still open
+    return begin is not None and begin < end and (finish is None or finish >= start)
+
+
+def count(run, key):
+    return len(run[key]) if isinstance(run.get(key), list) else 0
 
 
 def build(dev_root, label, projects=None, reviews_path=None, actions_path=None, guard_path=None):
@@ -151,15 +168,18 @@ def build(dev_root, label, projects=None, reviews_path=None, actions_path=None, 
         md.append(f"Guard decisions this week: {c['allow']} allow, {c['ask']} ask, {c['deny']} deny.")
     md.append("")
 
-    runs = [(slug, run) for slug, run in run_records(dev_root) if in_week(run, start, end)]
+    records, skipped = run_records(dev_root)
+    runs = [(slug, run) for slug, run in records if in_week(run, start, end)]
     md += ["## 3. Runs per ticket", ""]
     if not runs:
         md.append("No run.json active this week.")
     else:
         md += ["| ticket | branch | pr | sessions | rounds | start | end |", "|---|---|---|---|---|---|---|"]
         for slug, run in runs:
-            md.append(f"| {slug} | {run.get('branch') or '?'} | {run.get('pr') or '-'} | {len(run.get('sessions') or [])} | "
-                      f"{len(run.get('rounds') or [])} | {run.get('start')} | {run.get('end') or 'open'} |")
+            md.append(f"| {slug} | {run.get('branch') or '?'} | {run.get('pr') or '-'} | {count(run, 'sessions')} | "
+                      f"{count(run, 'rounds')} | {run.get('start')} | {run.get('end') or 'open'} |")
+    if skipped:
+        md += ["", f"Skipped {skipped} run.json files (not a JSON object, or `start` missing or not a readable time)."]
     md.append("")
 
     md += ["## 4. Tokens and time per ticket", ""]

@@ -61,15 +61,34 @@ class Metrics(unittest.TestCase):
         self.assertIn("| r | a | 3 | 3 | PASS |", out)
         self.assertIn("| r | b | 3 | 1 | not PASS yet |", out)
 
-    def test_commits_come_from_git_log_of_the_repo(self):
-        repo = os.path.join(self.dev, "repos", "r")
+    def git_repo(self, name="r"):
+        repo = os.path.join(self.dev, "repos", name)
         os.makedirs(repo)
         env = dict(os.environ, GIT_AUTHOR_DATE="2026-11-18T10:00:00", GIT_COMMITTER_DATE="2026-11-18T10:00:00",
                    GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
-        for cmd in (["init", "-q", "-b", "a"], ["commit", "-q", "--allow-empty", "-m", "x"]):
+
+        def git(*cmd):
             subprocess.run(["git", "-C", repo, *cmd], check=True, env=env, capture_output=True)
+        git("init", "-q", "-b", "main")
+        return git
+
+    def test_commits_are_the_branchs_own_not_the_history_it_sits_on(self):
+        git = self.git_repo()
+        for _ in range(3):
+            git("commit", "-q", "--allow-empty", "-m", "main")
+        git("checkout", "-q", "-b", "a")
+        for _ in range(2):
+            git("commit", "-q", "--allow-empty", "-m", "own")
         self.log("reviews.log", [review(18, 9, "a", 1, 3, "PASS", "nit=1")])
-        self.assertIn("a 1", self.build())
+        self.assertIn("a 2", self.build())
+
+    def test_commits_are_n_a_when_there_is_no_base_ref(self):
+        git = self.git_repo()
+        git("checkout", "-q", "-b", "a")
+        git("commit", "-q", "--allow-empty", "-m", "x")
+        git("branch", "-q", "-M", "other")  # the only branch: no main, no origin/main to compare with
+        self.log("reviews.log", [review(18, 9, "other", 1, 3, "PASS", "nit=1")])
+        self.assertIn("other n/a", self.build())
 
     def test_ask_answers_use_the_ask_time_for_a_declined_line_stamped_later(self):
         self.log("actions.log", [action(18, "s1", "asked", "git push a"), action(18, "s1", "approved", "git push a"),
@@ -108,6 +127,23 @@ class Metrics(unittest.TestCase):
         self.assertIn("Severity: nit 6, warning 2, minor 2", out)
         self.assertIn("Triage: defer 2, reject 1", out)
         self.assertNotIn("major 9", out)
+
+    def test_tz_aware_non_string_and_garbage_run_json_do_not_crash_and_are_counted_as_skipped(self):
+        self.run_json("aware", {"ticket": "aware", "sessions": [], "branch": "ai/z", "start": "2026-11-18T09:00:00+00:00",
+                                "end": "2026-11-18T11:00:00Z"})
+        self.run_json("num", {"ticket": "num", "start": 1763460000})
+        self.run_json("listy", {"ticket": "listy", "start": "2026-11-18T09:00:00", "sessions": "abc", "rounds": 5})
+        os.makedirs(os.path.join(self.dev, "handoffs", "junk"))
+        with open(os.path.join(self.dev, "handoffs", "junk", "run.json"), "w") as f:
+            f.write("[1, 2")
+        out = self.build()
+        self.assertIn("| aware | ai/z |", out)
+        self.assertIn("| listy |", out)
+        self.assertIn("Skipped 2 run.json files", out)  # num (start is not a string) and junk (not a JSON object)
+
+    def test_tz_aware_review_line_does_not_crash(self):
+        self.log("reviews.log", ["2026-11-18T10:00:00+00:00\tr\ta\t1\t3\tPASS\tnit=1"])
+        self.assertIn("| r | a | 3 | 1 | PASS |", self.build())
 
     def test_hostile_review_line_cannot_make_git_write_a_file_or_leave_repos(self):
         repo = os.path.join(self.dev, "repos", "r")
