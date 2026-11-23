@@ -4,8 +4,8 @@
 [![CI macOS](https://github.com/sebabottero/ai-setup/actions/workflows/ci-macos.yml/badge.svg)](https://github.com/sebabottero/ai-setup/actions/workflows/ci-macos.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**Make your AI coding agent ask before `git push`, `rm -rf` or reading your SSH keys, and stop burning tokens without noticing.**
-One folder configures Claude Code, OpenCode and Codex the same way, on every machine.
+**A local harness for AI coding agents: rules, a permission guard, a ticket-to-merge workflow, independent review and usage logs, around the agent you already use.**
+One folder configures Claude Code, OpenCode and Codex the same way, on every machine. First proof: it makes the agent ask before `git push`, `rm -rf` or reading your SSH keys.
 
 ```
 Without ai-setup:  agent runs `git push --force origin main`  → done, no questions
@@ -65,13 +65,20 @@ OpenCode has no OS wall of its own, so by default it gets rules plus the guard o
 The settings reuse `policy.json` (allowed domains, `allow_write`, `work_dirs`, secrets, protected paths) and add what OpenCode needs because srt wraps the whole process: its state dirs (writable) and model-provider hosts, listed in `adapters/opencode/sandbox/extra.json` (edit it for the providers you use, then re-run the installer). The launcher adds the folder you start it from to the writable paths at launch. It is not identical to Claude's sandbox. Without the flag nothing is written and the install is unchanged. The srt settings format was written offline and is marked `TO VERIFY` in the launcher: check it against `srt --help` before trusting it.
 
 ## What you get
-| | |
-|---|---|
-| 🛡 **Asks before anything hard to undo** | One `policy.json` and one guard decide `allow` / `ask` / `deny` for every shell command. Secrets are a hard `deny`. Claude also gets an OS sandbox from the same policy. |
-| 💸 **Spends fewer tokens** | `coach` picks model and effort before you start, and flags big PDFs/docs to convert first. A hook warns when the context passes 100k. `usage_report.py` audits your own sessions, locally. |
-| 🔀 **Same rules in every tool** | Write rules, skills and agents once. They install into Claude Code, OpenCode and Codex. Your private bits live in layers (extra folders that add rules on top), not in a fork. |
-| 🧱 **Repos that keep their rules** | `repo-guardrails` prepares any repo with a short `AGENTS.md`, a one-line `CLAUDE.md`, architecture tests that fail the build and a minimal CI. Only the file-scan test is verified; other languages are marked untested. |
-| 🔁 **A full cycle, not just tools** | From ticket to merge, each of 6 steps has a skill or a gate behind it (one writer per ticket, independent review, you decide). See [The cycle](#the-cycle). |
+Eight layers of a harness, with an honest status. `done` means the evidence path exists on `main`; `partial` says what is missing.
+
+| Layer | Status | Evidence | What is missing |
+|---|---|---|---|
+| Instructions | done | [`core/AGENTS.md`](core/AGENTS.md) | One set of rules and skills, installed into Claude Code, OpenCode and Codex (Codex: instructions and skills only). |
+| Permissions / guard | done | [`core/guard/guard.py`](core/guard/guard.py) | `allow` / `ask` / `deny` from one `policy.json`; OS sandbox on Claude. OpenCode sandbox is opt-in and its srt settings are unverified. No scoped approvals by design ([DESIGN](docs/DESIGN.md)). |
+| Workflow / agents | done | [`core/skills/ticket-flow/SKILL.md`](core/skills/ticket-flow/SKILL.md) | Ticket to merge, one writer per ticket, two human gates. |
+| Review | done | [`core/agents/sub-review.md`](core/agents/sub-review.md) | Independent reviewer, findings table, round cap, history in `reviews.log`; optional second reviewer from another provider. |
+| Verification | partial | [`core/agents/sub-review.md`](core/agents/sub-review.md) | One test per criterion and CI; the reviewer lists every criterion without a test as "not covered". Partial: an agent does it, not an automatic check. |
+| Observability | partial | [`core/scripts/metrics.py`](core/scripts/metrics.py) | Sessions, guard ask rates, outcome of asks, tokens/turns/time per ticket (`usage_report.py --ticket`) and a weekly view (`metrics.py --week`). Partial: cost per ticket ignores subagent transcripts, so it is understated, and there is no real approval-rate data yet. |
+| Knowledge | done | [`core/skills/session-handoff/SKILL.md`](core/skills/session-handoff/SKILL.md) | Handoffs, per-repo `AGENTS.md` via `repo-guardrails`, a repeated mistake becomes a rule (`meta-setup`, manual). |
+| Recovery | partial | [`backup.sh`](backup.sh) | Backup of the setup and personal files, install backs up what it replaces. No rollback of an agent's edits to your repos. |
+
+Also: `coach` picks model and effort before you start and a hook warns when the context passes 100k. See [The cycle](#the-cycle).
 
 ## The cycle
 The guard is one piece. Around it, the whole loop of working with an AI agent, from ticket to merge:
@@ -93,18 +100,33 @@ The guard is one piece. Around it, the whole loop of working with an AI agent, f
 Details per step in the [cheatsheet](https://sebabottero.github.io/ai-setup/cheatsheet.html#cycle).
 
 ## Measure it
-Example output (`python3 -I adapters/claude/usage_report.py 30`; reads only your local files, sends nothing). The three transcript lines are sample numbers; the Guard and ask lines are the real output for a small synthetic `guard.log` and `actions.log`:
+A dated snapshot (2026-11-23) of real numbers from the author's machine. Each figure has the command that produced it; run it on your own logs.
+
+**Rounds to PASS** (stage 3, diff review: rounds until `sub-review` first says PASS), from `~/Dev/logs/reviews.log`:
 ```console
-Sessions: 149  |  over 150k: 35 (23%)  |  over 300k: 9  |  peak: 772k
-Turns by model: claude-sonnet-5-5 60%, claude-opus-5-5 39%
-Top tools: Bash 812, Edit 301, Read 255
-Guard (last 30 days): 40 allowed, 20 asked, 0 denied. Rules that fire most: rm-outside-tmp 10, git push * 10
-Asks per day (20 in 10 days with asks, avg 2.0): 11-17 2, 11-18 2, 11-19 2, 11-20 2, 11-21 2, 11-22 2, 11-23 2 (last 7 shown)
-Ask rate per week (asks / guard decisions): 2026-W46 33% (4/12), 2026-W47 33% (14/42), 2026-W48 33% (2/6)
-  guard.log only covers from 2026-11-14 on: earlier days and the first week are partial
-Top ask rules: rm-outside-tmp 10, git push * 10
-Approval rate: 70% (7 approved / 10 decided); unknown 0, unresolved 0 (of 10 asks in the action log, which keeps only notable commands; declined is inferred when the session ends, never guessed for unknown or unresolved)
+$ awk -F'\t' '$5==3 && $6=="PASS" && !s[$3]++ {print $3, $4}' ~/Dev/logs/reviews.log
+ai/harness-s1-review-history 2
+ai/harness-s3-ask-baseline 2
+ai/harness-s4-review-quality 1
+ai/harness-s5-cost-weekly 2
+ai/harness-s6-cross-reviewer 2
 ```
+Clean: s3 2, s4 1, s5 2, s6 2 (4 branches, average 1.75). s1 is only a lower bound (logging started mid-review, its round 1 is missing). s2 and s7 have stage-4 rows only, so they are not comparable.
+
+**Ask approval rate**: no real data yet. The outcome hook (approved / declined per ask) only just merged. Today `AI_SETUP_ACTIONS_LOG=~/Dev/logs/actions.log python3 -I adapters/claude/usage_report.py 30` prints:
+```console
+Approval rate: n/a (no decided asks); unknown 0, unresolved 1565 (of 1565 asks in the action log, ...)
+```
+
+**Asks and tokens** (`python3 -I adapters/claude/usage_report.py 30`, 2026-11-23; reads only your local files, sends nothing):
+```console
+Sessions: 338  |  over 150k: 44 (13%)  |  over 300k: 0  |  peak: 287k
+Guard (last 30 days): 10101 allowed, 1528 asked, 46 denied. Rules that fire most: protected_paths 393, git push * 333, rm-outside-tmp 308
+Ask rate per week (asks / guard decisions): 2026-W45 9% (208/2273), 2026-W46 11% (493/4423), 2026-W47 17% (660/3922), 2026-W48 16% (167/1057)
+  guard.log only covers from 2026-11-03 on: earlier days and the first week are partial
+```
+Per ticket: `python3 -I adapters/claude/usage_report.py --ticket <slug>`; weekly file: `python3 core/scripts/metrics.py --week`.
+
 `/coach` before a task (example): model and effort, plus your request rewritten as *goal · done when · out of scope · start from*.
 Every ~30 days `tune-setup` (Claude only) re-tunes it from your own `/insights` data, and edits only after you approve.
 
