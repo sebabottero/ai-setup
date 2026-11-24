@@ -45,8 +45,6 @@
   retry and do not interrupt me per step: keep working, collect every blocked command and give them to me at the end
   of the task in ONE copyable block, each with a `! ` prefix. After `claude mcp add`, remind me to restart the session.
 - Start with the lowest-cost model that does the job dependably; reserve high effort for hard diagnoses.
-- ai-setup's `docs/cheatsheet.html` weighs ~17k tokens: do not read it whole, use `grep -n` and edit only the piece.
-  Every change to ai-setup (rules, agents, skills, policy) updates the cheatsheet in the same commit.
 
 ## Tools: choose in this order
 1. **CLI** through the shell (`git`, `gh`, `npm`…): costs no context and can be audited.
