@@ -326,7 +326,10 @@ class CaseVariants(Base):
         real = os.path.join(self.wt, GUARDED)
         self.check(real)
         self.approve(real)
-        self.assertEqual(self.check(os.path.join(self.base, REPO.upper(), "T1", GUARDED)), "allow")
+        other = os.path.join(self.base, REPO.upper(), "T1", GUARDED)
+        # Where the filesystem ignores case (macOS) `other` is the same folder, so the scope applies. Where it does not (Linux)
+        # it is another, missing folder that no scope can belong to, so it must ask: allowing it there would be the bug.
+        self.assertEqual(self.check(other), "allow" if os.path.exists(other) else "ask")
         self.assertEqual(self.check(os.path.join(self.base, REPO, "t1", "CORE", "GUARD", "GUARD.PY")), "ask")
 
     def test_state_folders_ask_under_any_spelling(self):
