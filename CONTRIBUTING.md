@@ -20,7 +20,7 @@ python3 -I -m unittest discover -s tests
 - **Tests first for the guard.** A new rule needs a test that fails without it. If a case cannot be caught, add it to `KnownGaps` instead of hiding it.
 - **Do not weaken a test** to make it pass. If the expected behavior changes, say why in the PR.
 - **Nothing personal in `core/`:** no names, company tools or private paths.
-- **Update the docs** that mention the thing you changed (`README.md`, `docs/cheatsheet.html`).
+- **Update the docs** that mention the thing you changed (`README.md`, `docs/cheatsheet.html`). Every change to ai-setup (rules, agents, skills, policy) updates the cheatsheet in the same commit.
 - **No secrets** in code, tests or fixtures.
 
 ## README and GitHub About
