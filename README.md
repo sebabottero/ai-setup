@@ -37,6 +37,7 @@ $ echo '{"tool":"bash","command":"git status"}' | python3 core/guard/guard.py
 {"decision": "allow", "reason": ""}
 ```
 The rules are plain JSON in [`core/policy.json`](core/policy.json). A layer can add rules, never weaken `core/`.
+Guides and the human gates can also come as one self-contained HTML page (skill [`visual-guides`](core/skills/visual-guides/SKILL.md), preferences `gate_view` and `lang`).
 
 ## What you get
 Eight layers of a harness, with an honest status. `done` means the evidence exists on `main`; `partial` says what is missing in [Reference](docs/REFERENCE.md#the-eight-layers).

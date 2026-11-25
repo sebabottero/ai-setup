@@ -322,7 +322,10 @@ def build_agents_md():
 
 def build_policy():
     """build/policy.json: the policy of the selected layers. The guard reads this file at run time."""
-    return render_build("policy.json", json.dumps(policy(), indent=2, ensure_ascii=False) + "\n")
+    pol = policy()
+    prefs = layerlib.preferences(pol)
+    log("preferences: " + " ".join(f"{k}={v}" for k, v in prefs.items()))
+    return render_build("policy.json", json.dumps(pol, indent=2, ensure_ascii=False) + "\n")
 
 
 def notes_folder(layer_names=None):
