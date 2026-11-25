@@ -9,6 +9,7 @@ description: Run a whole ticket end to end - understand, plan, build, test, docs
 ```
 0 Contract ► Understand ──► 1 Plan ──► ⛔ GATE 1 ──► 2 Build (one writer, one worktree) ──► 3 Validate ‖ Review ──► ⛔ GATE 2
    ‖ Explore x N            + critic     bug: sub-tester first                       leaf-verify ‖ sub-review
+|<------- strong model ------->|  switch offer |<-------------------- balanced model -------------------->|
 ```
 After the PR: `4 Post-PR re-review` (`sub-review` on the commit vs `criteria.md`), then the comment OK at Gate 2.
 `‖` = in parallel, in the same turn. Small tasks skip stages: say which ones and why.
@@ -22,16 +23,23 @@ After the PR: `4 Post-PR re-review` (`sub-review` on the commit vs `criteria.md`
   that path as the only working directory.
 - The ticket branch stays local until Gate 2. No intermediate commits: the policy asks for OK on every commit.
 
+## Models: strong to plan, balanced to execute
+Before Gate 1 (0a, 0b, plan, plan critic) the orchestrator runs on the strong model: that is where the decisions are made. From stage 2 on it runs on the balanced model, after the switch offered at Gate 1 (see "Model switch" there), so the long build and review context is not paid at the strong model's price.
+Exceptions: with "keep" the run stays on the session's model; on the short route (tier low) there is no switch offer and the whole run stays on the session's model; if you are already on the balanced model, unsure which model you are on, or the tool has no model switch, there is no offer and stage 2 starts as today.
+Detection rule: read your own model name from your context; never guess it.
+
 ## Run record
 `<dev root>/handoffs/<ticket>/run.json` is the journal of the run: session ids, branch, PR number, review reports and rounds (stage, verdict), start and end time. It is for reading afterwards: nothing resumes from it.
 Write it only with `python3 -I {{AI_SETUP}}/core/guard/run_json.py update <ticket> [--session ID] [--branch B] [--pr N] [--round STAGE:VERDICT[:REPORT]] [--report PATH] [--cross-review on|off] [--end]` (first call creates it; every call adds, never rewrites). Pass `--session auto`: it reads the session id the SessionStart hook stored for the current folder (with none stored it records nothing and says so).
 Call it at: 0a after my OK (`--session auto`, `--branch`), Gate 1 after my OK (`--session auto`, and `--cross-review on|off` for my cross-provider choice), each stage 3 and stage 4 review (`--round 3:<verdict>:<report path>`, `--round 4:...`), the PR (`--pr N`) and the end of stage 4 (`--end`). The same on the short route. A failed call never stops the ticket: say so in the receipt.
+After a model switch the new session calls `--session auto` before any stage 2 work, so `run.json` lists both sessions of the ticket; with no stored id nothing is recorded: say so in the receipt.
 
 ## Short route (low risk)
 Read the repo's `AGENTS.md` section "Risk tiers" and propose tier low when the change fits it (a style fix, a typo).
 I confirm in one line. Then skip exploration and planning, but still run `sub-review` and write the report with the same
 helper and path as `sub-review` (`python3 -I {{AI_SETUP}}/core/guard/review_report.py`, `<dev root>/reviews/<repo>/<branch>.md`; `header` keeps earlier rounds as `.r<N>.md`, then `log --stage 3` appends to `reviews.log`).
 `sub-tester` still runs, one test per criterion, as in the full flow.
+Once I confirm the tier there is no switch offer: the whole run stays on the session's model.
 Any other tier, no confirmation, or a repo with no "Risk tiers" section: the full flow below.
 The 0a scope contract still applies in short form: allowlist and out of scope in one line, confirmed together with the tier,
 and written into `criteria.md` (there is no `plan.md` on this route).
@@ -89,8 +97,12 @@ It always carries one verdict line with your recommendation: `Single PR (~N line
 
 **Cross-provider review (opt-in, high tier only).** Read the ticket's tier from the repo's `AGENTS.md` "Risk tiers". Only when it is **high**, Gate 1 carries one more line, `Cross-provider review: off (default) - say "cross-review" to add a second reviewer from another model provider (Codex or OpenCode with a non-Claude model)`. Any other tier, or no tier: no line, no question, nothing changes. The default is off: it runs only if I answer "cross-review" at Gate 1; silence or a plain OK means off. Record the choice with `run_json.py update <ticket> --cross-review on|off`.
 
+**Model switch (after my OK, last step before 2 · Build).** Order: the scoped approvals above (wait for them) → the Gate 1 `run_json` call (`--session auto`, `--cross-review`) → write `<dev root>/handoffs/<ticket>/handoff.md` → your next message is the switch offer. Offer only when you are on the strong model: read your own model name from your context. Already on the balanced model, unsure which model you are on, or the tool has no model switch: no offer, stage 2 starts as today. Short route: no offer either.
+`handoff.md` reuses the shape of the `session-handoff` skill and carries everything stage 2 needs without the old conversation: ticket, worktree path, branch, base, the 0a allowlist and out of scope, the paths of `criteria.md`, `plan.md`, `plan-critic.md` and `run.json`, the chosen slice (`none` when there are no slices), the cross-review choice (`off` by default), `gate_view`, and the next stage = 2 · Build.
+The offer, in one message, in this order: the `handoff.md` path; `/clear`; switch to the balanced model (`/model` in Claude Code, the model picker in OpenCode); one copy-paste prompt that resumes at stage 2 (read `handoff.md`, call `run_json.py update <ticket> --session auto`, then start 2 · Build). I run `/clear` and the switch myself; you cannot. The scope grant is per worktree (12 h), so it survives `/clear`. If I say "keep", go straight to stage 2 as today.
+
 ## 2 · Build
-One writer, the `sub-builder` agent (balanced model; you stay on the strong one for planning and decisions), in the worktree, with a brief made with the `session-handoff` skill:
+One writer, the `sub-builder` agent (balanced model; the planning decisions were made before Gate 1, and after a switch the orchestrator is on the balanced model too: with "keep" it stays where it is), in the worktree, with a brief made with the `session-handoff` skill:
 goal, the contract's allowlist (reject what falls outside), out of scope, how to verify.
 - **Bug:** root cause first with the `systematic-debugging` skill. Then `sub-tester` writes the regression test in the worktree and confirms it **fails for the right reason**.
   Then the writer fixes until it passes.
