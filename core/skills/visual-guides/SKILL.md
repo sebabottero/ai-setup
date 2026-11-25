@@ -55,6 +55,7 @@ Never write these by hand. The `.md` is the source of truth and agents keep read
 python3 -I {{AI_SETUP}}/core/guard/render_gate.py <dir>/criteria.md
 ```
 It writes the sibling `.html`, copies every criterion line verbatim, stores the hash of the `.md` in `<meta name="source-sha256">`, draws the slice dependency SVG when the `.md` has `## Slices`, and prints the path.
+Gates check the page is fresh with `render_gate.py --check <file>` (exit 1 when stale or missing) and re-render before showing it.
 
 ## Before handing it over
 Read only the title and step headings: can the reader do the task? If not, cut and reorder.

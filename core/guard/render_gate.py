@@ -2,6 +2,7 @@
 """Render a gate file (criteria.md or plan.md) into its sibling .html, deterministically and with no agent step.
 
     python3 -I render_gate.py <dir>/criteria.md   -> <dir>/criteria.html   (prints the absolute path)
+    python3 -I render_gate.py --check <dir>/criteria.md|.html  -> exit 0 when the .html is fresh, 1 when stale or missing, 2 on bad use
     python3 -I render_gate.py --prefs             -> gate_view=<md|html> and lang=<code> from the composed policy
 
 The .md stays the source of truth: the page carries `<meta name="source-sha256">` with the hash of the .md bytes, and
@@ -204,27 +205,66 @@ def render_file(path):
     return out
 
 
+def stale(path):
+    """Why the .html of a gate file is out of date (one line), or None when its source-sha256 matches the .md bytes."""
+    base = os.path.abspath(path)
+    stem = base[:-5] if base.endswith(".html") else base[:-3]
+    md, page = stem + ".md", stem + ".html"
+    if not os.path.isfile(md):
+        return f"{md} is missing"
+    if not os.path.isfile(page):
+        return f"{page} is missing"
+    try:
+        with open(md, "rb") as f:
+            want = hashlib.sha256(f.read()).hexdigest()
+        with open(page, encoding="utf-8") as f:
+            found = re.search(r'<meta\s+name="source-sha256"\s+content="([0-9a-f]*)"', f.read())
+    except (OSError, UnicodeDecodeError) as err:
+        return f"cannot read {md} or {page}: {str(err).splitlines()[0]}"
+    if not found:
+        return f"{page} has no source-sha256 meta"
+    return None if found.group(1) == want else f"{page} source-sha256 differs from {md}"
+
+
 def prefs():
+    """(preferences, warning or None). A gate_view that is not md or html is read as md and the warning says so."""
     sys.path.insert(0, HERE)  # under `python3 -I` the script folder is not on sys.path
     import guard, layers
     given = os.environ.get("AI_SETUP_POLICY")
     if given:
         with open(given) as f:
-            return layers.preferences(json.load(f))
-    return layers.preferences(guard.load())
+            policy = json.load(f)
+    else:
+        policy = guard.load()
+    warning = f"render_gate: gate_view {policy['gate_view']!r} is not md or html, using md" if layers.unknown_gate_view(policy) else None
+    return layers.preferences(policy), warning
 
 
 def main(argv):
     if argv == ["--prefs"]:
-        for key, value in prefs().items():
+        values, warning = prefs()
+        for key, value in values.items():
             print(f"{key}={value}")
+        if warning:
+            print(warning, file=sys.stderr)
         return 0
+    check = argv[:1] == ["--check"]
+    if check:
+        argv = argv[1:]
     if len(argv) != 1 or argv[0].startswith("-"):
         print(__doc__.split("\n\n")[0], file=sys.stderr)
         return 2
-    if os.path.basename(argv[0]) not in KINDS:
-        print(f"render_gate: only {' and '.join(KINDS)} can be rendered, not '{os.path.basename(argv[0])}'", file=sys.stderr)
+    name = os.path.basename(argv[0])
+    if name.endswith(".html") and check:
+        name = name[:-5] + ".md"
+    if name not in KINDS:
+        print(f"render_gate: only {' and '.join(KINDS)} can be {'checked' if check else 'rendered'}, not '{os.path.basename(argv[0])}'", file=sys.stderr)
         return 2
+    if check:
+        why = stale(argv[0])
+        if why:
+            print(f"render_gate: stale: {why}", file=sys.stderr)
+        return 1 if why else 0
     try:
         print(render_file(argv[0]))
     except (OSError, UnicodeDecodeError) as err:

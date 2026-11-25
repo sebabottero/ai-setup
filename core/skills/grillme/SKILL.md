@@ -44,3 +44,6 @@ Then write `<dev root>/handoffs/<ticket>/criteria.md` (the ticket id, or a short
 ```
 `## Slices` (optional): add it when the criteria can be delivered and tested separately, or the task mixes topics (refactor + behaviour change): criteria numbers per PR, with their dependencies. Single PR: no `## Slices` section.
 Short form, when asked for it (a low-risk change, `ticket-flow` short route): same shape, 1-3 criteria, and the Out of scope line carries the allowlist.
+**View of the closing.** After writing `criteria.md`, read the preference with `python3 -I {{AI_SETUP}}/core/guard/render_gate.py --prefs`. If that fails or prints nothing, treat it as `gate_view=md`.
+- `gate_view=html`: run `python3 -I {{AI_SETUP}}/core/guard/render_gate.py --check <criteria.md> || python3 -I {{AI_SETUP}}/core/guard/render_gate.py <criteria.md>` (check the page is fresh, re-render when it is not) before showing the closing. The closing message is then at most 3 lines (goal · how many criteria or slices · open questions in one line, if any) plus `! open <absolute path to criteria.html>`. Open questions are still asked in chat; nothing is hidden only in the view.
+- `gate_view=md`: no `.html` is written and the closing is unchanged.

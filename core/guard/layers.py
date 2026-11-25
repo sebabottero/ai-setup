@@ -93,19 +93,29 @@ def read_policy(root, layer):
 
 
 PREFERENCES = {"gate_view": "md", "lang": "en"}  # defaults; a layer's policy.json overrides them (first layer wins)
+GATE_VIEWS = ("md", "html")
+
+
+def unknown_gate_view(policy):
+    """True when the policy gives a gate_view that is not md or html once lowercased (a typo, null, a number)."""
+    if "gate_view" not in policy:
+        return False
+    given = policy["gate_view"]
+    return not (isinstance(given, str) and given.lower() in GATE_VIEWS)
 
 
 def preferences(policy):
-    """The user's preferences from a composed policy, with the defaults filled in."""
-    return {key: policy.get(key, default) for key, default in PREFERENCES.items()}
+    """The user's preferences from a composed policy, with the defaults filled in. gate_view is lowercased; an unknown value is md."""
+    prefs = {key: policy.get(key, default) for key, default in PREFERENCES.items()}
+    prefs["gate_view"] = PREFERENCES["gate_view"] if unknown_gate_view(policy) else prefs["gate_view"].lower()
+    return prefs
 
 
 def compose_policy(root, layers):
     """The merged policy of the layers. A layer kept outside this repo adds permissions too, so its policy.json is
     protected like the ones inside: editing it asks for OK."""
     policy = merge_policies([read_policy(root, l) for l in layers])
-    for key, value in PREFERENCES.items():  # not in core/policy.json: for strings the first layer wins, core would always beat a layer
-        policy.setdefault(key, value)
+    policy.update(preferences(policy))  # not in core/policy.json: for strings the first layer wins, core would always beat a layer
     outside = [os.path.join(r, "*", "policy.json") for r in roots(root)[1:]]
     if outside:
         policy["protected_paths"] = policy.get("protected_paths", []) + [p for p in outside if p not in policy.get("protected_paths", [])]
