@@ -1,6 +1,6 @@
 ---
 name: visual-guides
-description: Write short, visual, step-by-step guides, manuals and cheatsheets for the user ("how to use X"), and produce self-contained HTML pages (guide, criteria, plan, repo-doc templates) with no external URLs. Use when asked for "cheatsheet", "manual", "guide", "how do I use X", "step by step", "make it visual", "as HTML", or when documenting a tool, skill or workflow for the user's own use. Not for PRs or tickets.
+description: Write short, visual, step-by-step guides, manuals and cheatsheets for the user ("how to use X"), and produce self-contained HTML pages (guide, criteria, plan, repo-doc templates) with no external URLs. Use when asked for "cheatsheet", "manual", "guide", "how do I use X", "step by step", "make it visual", "as HTML", "guía", "cómo uso X", "paso a paso", "explícame cómo se usa", or when documenting a tool, skill or workflow for the user's own use. Not for PRs or tickets.
 ---
 
 # Visual guides
