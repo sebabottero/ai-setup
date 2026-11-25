@@ -109,6 +109,10 @@ Reserved names: `adapters`, `docs`, `tests`, `build`. Layers only **add**: a lay
 | `core/` | Generic: limits, way of working, agents, skills, permission policy. Always installed. |
 | `<yours>/` | Optional: language, tone, work tools, notes for one repo (`notes/*.md` are linked to `$DEV/ai-notes/`; `$DEV` is the `dev_root` a layer sets in its `policy.json`, `~` by default). |
 
+### Preferences and HTML views
+Two preferences, set by a layer in its `policy.json` (first layer wins; defaults when none sets them): `gate_view` (`md` or `html`, default `md`) and `lang` (language of guides, default `en`). `build/policy.json` always carries both, and the installer prints `preferences: gate_view=<v> lang=<v>`.
+`python3 -I core/guard/render_gate.py --prefs` prints them. `python3 -I core/guard/render_gate.py <dir>/criteria.md` (or `plan.md`) writes the sibling `.html` from the `visual-guides` templates: criterion lines verbatim, `<meta name="source-sha256">` with the hash of the `.md`, and a dependency SVG when the `.md` has `## Slices`. The page is self-contained (no external URL). The `.md` stays the source of truth: agents and reviewers keep reading it, never the `.html`.
+
 ### Keep your layers in another repo
 ```bash
 ./install.sh --layers-dir ~/Dev/ai-setup-private --with personal,work
@@ -159,7 +163,7 @@ earlier that no layer produces any more. Rules you added by hand stay.
 |---|---|
 | `core/AGENTS.md` | Generic instructions: limits, way of working, tools |
 | `core/agents/` | `flow-ticket`, `sub-review`, `sub-review-xprov`, `sub-builder`, `sub-tester`, `leaf-verify`, `meta-setup` |
-| `core/skills/` | `ticket-flow`, `pr-review-ticket`, `session-handoff`, `repo-guardrails`, `validate`, `setup-commit`, `grillme`, `coach` |
+| `core/skills/` | `ticket-flow`, `pr-review-ticket`, `session-handoff`, `repo-guardrails`, `validate`, `setup-commit`, `grillme`, `coach`, `visual-guides` |
 | `core/policy.json` | Permissions, single source |
 | `core/guard/` | Shared allow / ask / deny logic and the layer loader |
 | `adapters/` | Per-tool hooks, plugins and settings. Claude: guard hook, a context-size notice hook (info only, above 100k tokens), a `ask_outcome` hook (how a guard ask ended, in `actions.log`), a `scoped_edit` hook (ask once for a ticket's scoped protected paths inside its worktree, `core/guard/scope.py`), a generic `action_trace` hook (logs the commands that a layer's `policy.json` `trace` rule matches, `[{match: [globs], log: "{{DEV}}/logs/x.log", high_risk: {label: [globs]}}]`, globs run over the program and its non-flag words, so list the subcommands that change something, with the same line format, HIGH-RISK mark and dry-run mark; no rules, no-op; never blocks); `tune-setup` and a re-tune reminder and `usage_report.py` (local usage summary, guard log counts and the ask baseline: asks per day and per week from `guard.log`, approval rate from `actions.log` outcomes linked to the `asked` line by session + command and dated by the ask, `unknown` and unresolved asks reported apart; the `Guard:` line now follows the `days` window ("Guard (last N days)" / "Guard (all time)") and no longer says the answer is not recorded; the report notes when `actions.log` rotated to `.1` (not read); sends nothing) |
