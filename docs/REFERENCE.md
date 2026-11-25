@@ -113,6 +113,9 @@ Reserved names: `adapters`, `docs`, `tests`, `build`. Layers only **add**: a lay
 Two preferences, set by a layer in its `policy.json` (first layer wins; defaults when none sets them): `gate_view` (`md` or `html`, default `md`) and `lang` (language of guides, default `en`). `build/policy.json` always carries both, and the installer prints `preferences: gate_view=<v> lang=<v>`.
 `python3 -I core/guard/render_gate.py --prefs` prints them. `python3 -I core/guard/render_gate.py <dir>/criteria.md` (or `plan.md`) writes the sibling `.html` from the `visual-guides` templates: criterion lines verbatim, `<meta name="source-sha256">` with the hash of the `.md`, and a dependency SVG when the `.md` has `## Slices`. The page is self-contained (no external URL). The `.md` stays the source of truth: agents and reviewers keep reading it, never the `.html`.
 
+### Human docs in HTML
+A repo opts in with one line in its `AGENTS.md` or `CONTRIBUTING.md`: `Human docs: html` (any case, may be a list item). When the ticket-flow docs stage finds it (the grep is in the `visual-guides` skill), the human docs the ticket adds or changes are written as one self-contained `.html` from the `repo-doc` template, always in English. Only the language and the format change; every other rule of the repo's docs still applies. Without the line, the docs stage is unchanged.
+
 ### Keep your layers in another repo
 ```bash
 ./install.sh --layers-dir ~/Dev/ai-setup-private --with personal,work

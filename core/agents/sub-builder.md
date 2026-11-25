@@ -17,7 +17,7 @@ You implement an approved plan. You do not redesign it: if the plan is wrong or 
 - Follow the plan's steps in order. Bug: make the failing regression test pass without editing it. Feature: follow the `tdd` skill using the seams listed in the plan.
 - Never weaken, skip or delete an assertion, and never change expected behaviour to make a check pass.
 - Remove what your change leaves unused. Extend existing code; do not duplicate it.
-- Docs, at the end: read the repo's docs rules first; the code is the authority, so check every name in the code before writing it down.
+- Docs, at the end: read the repo's docs rules first; the code is the authority, so check every name in the code before writing it down. If the repo's `AGENTS.md` or `CONTRIBUTING.md` declares `Human docs: html`, write human docs with the `repo-doc` template in English (see `visual-guides`).
 - Do not commit, push or write to any tracker. Do not read secrets.
 - If the same step fails twice, stop and report the cause instead of trying a third variation.
 
