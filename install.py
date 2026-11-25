@@ -324,6 +324,9 @@ def build_policy():
     """build/policy.json: the policy of the selected layers. The guard reads this file at run time."""
     pol = policy()
     prefs = layerlib.preferences(pol)
+    raw = layerlib.merge_policies([layerlib.read_policy(ROOT, l) for l in SELECTED])  # compose_policy already normalised pol
+    if layerlib.unknown_gate_view(raw):
+        print(f"warning: gate_view {raw['gate_view']!r} is not md or html; using md.", file=sys.stderr)
     log("preferences: " + " ".join(f"{k}={v}" for k, v in prefs.items()))
     return render_build("policy.json", json.dumps(pol, indent=2, ensure_ascii=False) + "\n")
 

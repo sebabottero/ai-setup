@@ -95,6 +95,18 @@ class Prefs(unittest.TestCase):
         self.assertEqual(layers.compose_policy(ROOT, ["core"])["gate_view"] in layers.GATE_VIEWS, True)
         self.assertEqual(layers.preferences({})["gate_view"], "md")
 
+    def test_extra_install_warns_on_an_unknown_gate_view(self):
+        with tempfile.TemporaryDirectory() as extra, tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as build:
+            os.makedirs(os.path.join(extra, "acme"))
+            with open(os.path.join(extra, "acme", "policy.json"), "w") as f:
+                json.dump({"gate_view": "htlm"}, f)
+            out = run(os.path.join(ROOT, "install.py"), "--home", home, "--build", build, "--tools", "claude",
+                      "--layers-dir", extra, "--only", "acme")
+            self.assertEqual(out.returncode, 0, out.stderr)
+            self.assertIn("preferences: gate_view=md", out.stdout)
+            self.assertIn("htlm", out.stdout + out.stderr)
+            self.assertIn("warning", out.stdout + out.stderr)
+
     def test_extra_compose_policy_install_log_and_prefs_agree(self):
         with tempfile.TemporaryDirectory() as tmp:
             os.makedirs(os.path.join(tmp, "one"))
