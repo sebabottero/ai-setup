@@ -36,9 +36,17 @@ All are in `{{AI_SETUP}}/core/skills/visual-guides/templates/`: one `.html` file
 | `guide` | a how-to for the user: steps as cards, example, "if it fails", next action | you, filling `{{TITLE}}` and `{{BODY}}` |
 | `criteria` | the HTML view of a `criteria.md` | only `render_gate.py` |
 | `plan` | the HTML view of a `plan.md` | only `render_gate.py` |
-| `repo-doc` | human docs of a repo that asks for HTML, always English | you, filling `{{TITLE}}` and `{{BODY}}` |
+| `repo-doc` | human docs of a repo that asks for HTML (see "Human docs in a repo"), always English | you, filling `{{TITLE}}` and `{{BODY}}` |
 
 Body of a `guide`: `<p class="lead">` for the one line, then one `<div class="step"><h3><span class="n">1</span>Title</h3>...</div>` per step, `<pre><code>` for the example, a `<table>` for "if it fails", and `<p class="next">` last. Escape every `<`, `>` and `&` you copy from the user's text.
+
+## Human docs in a repo
+A repo opts in with one line in its `AGENTS.md` or `CONTRIBUTING.md`: `Human docs: html` (any case), a plain line, optionally as a `-` list item. The docs writer checks it from the repo root:
+
+```sh
+cat AGENTS.md CONTRIBUTING.md 2>/dev/null | grep -iE '^[[:space:]]*([-*][[:space:]]+)?human docs:[[:space:]]*html([^[:alnum:]_-]|$)'
+```
+A printed line means declared (exit 0; 1 means not), even when only one of the two files exists. A match means the human docs the ticket adds or changes (guides and how-tos for people; not README, REFERENCE or agent rules) are written as one self-contained `.html` from the `repo-doc` template, always in English whatever `lang` says, next to the neighbouring docs. The declaration overrides only the language and the format of those docs; every other rule of the repo's docs still applies. No match: write docs as the repo's own rules say.
 
 ## Gate pages (`criteria`, `plan`)
 Never write these by hand. The `.md` is the source of truth and agents keep reading it:

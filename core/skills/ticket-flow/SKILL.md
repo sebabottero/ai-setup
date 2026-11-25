@@ -98,6 +98,7 @@ goal, the contract's allowlist (reject what falls outside), out of scope, how to
   - **the code is the authority**: check every endpoint, field or class in the code before writing it down;
   - document what the code does today; what is pending goes where the project notes say (if they say nothing, in the receipt);
   - match the depth and tone of the neighbouring docs and run the docs checks if they exist.
+  - if the `visual-guides` grep for `Human docs: html` matches the repo's `AGENTS.md` or `CONTRIBUTING.md`, write the human docs with the `repo-doc` template in English; if it does not match, docs stay as today.
 
 ## 3 · Validate ‖ Review (parallel)
 - `leaf-verify` on the worktree → checks receipt.
