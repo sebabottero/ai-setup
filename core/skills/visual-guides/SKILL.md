@@ -1,6 +1,6 @@
 ---
 name: visual-guides
-description: Write short, visual, step-by-step guides, manuals and cheatsheets for the user ("how to use X"), and produce self-contained HTML pages (guide, criteria, plan, repo-doc templates) with no external URLs. Use when asked for "cheatsheet", "manual", "guide", "how do I use X", "step by step", "make it visual", "as HTML", "guía", "cómo uso X", "paso a paso", "explícame cómo se usa", or when documenting a tool, skill or workflow for the user's own use. Not for PRs or tickets.
+description: Write short, visual, step-by-step guides, manuals and cheatsheets for the user ("how to use X"), and produce self-contained HTML pages (guide, criteria, plan, repo-doc templates) with no external URLs. Use when asked for "cheatsheet", "manual", "guide", "how do I use X", "step by step", "make it visual", "as HTML", "guía", "cómo uso X", "paso a paso", "explícame cómo se usa", "design", "mockup", "table layout", "diseño", "tabla", or when documenting a tool, skill or workflow for the user's own use. Not for PRs or tickets.
 ---
 
 # Visual guides
@@ -27,6 +27,9 @@ It prints `gate_view=<md|html>` and `lang=<code>` (defaults `md` and `en`; a lay
 - No theory or history unless asked. Use real paths, repos and commands when known.
 - SVG only when it adds something (a branching flow, dependencies, an architecture). Never for a linear list.
 - Format: `.md` by default. When the user asks for "visual" or "HTML", write one self-contained `.html` from the `guide` template.
+
+## Design rule
+Applies to ANY design (tables, Sheets blocks, HTML pages, mockups), not only guides. Every design must be very visual, simple and easy to understand, practical, and include a practical example (a real number or case, never an abstract description). Show it instead of describing it.
 
 ## Templates
 All are in `{{AI_SETUP}}/core/skills/visual-guides/templates/`: one `.html` file, inline CSS (light and dark), no external URL, no `<link>`, no `src=`, no `@import`. Placeholders: `{{TITLE}}`, `{{BODY}}`, `{{SHA}}`.
