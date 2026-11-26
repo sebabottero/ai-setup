@@ -1,6 +1,6 @@
 """Gate view: `render_gate.py --check`, and grillme / ticket-flow using the HTML view only when `gate_view` is html.
-One test per criterion of the ticket, named after it. Criteria 4 and 5."""
-import json, os, re, subprocess, sys, tempfile, unittest
+One test per criterion of the ticket, named after it. Criteria 1, 3, 4 and 5."""
+import hashlib, json, os, re, subprocess, sys, tempfile, unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "core", "guard"))
@@ -28,6 +28,155 @@ def section(text, start, end=None):
 
 def flat(text):
     return " ".join(text.split())
+
+
+MD = "# Criteria: sample\n## Goal\nOne line.\n## Criteria\n1. Given a, when b, then c.\n2. Given d, when e, then f.\n## Done\nAll pass.\n"
+SLICES = "## Slices\n- PR1: criteria 1 · first\n- PR2: criteria 2 · depends on PR1\n"
+PLAN = "# Plan: sample\n## Steps\n1. Tests first.\n2. Code.\n"
+KEEP = ('<section class="keep"><div data-keep="irreversible">{irreversible}</div><div data-keep="risks">{risks}</div>'
+        '<div data-keep="deviations">{deviations}</div></section>')
+SVG = '<svg class="slices" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>'
+CARDS = "".join(f'<article class="card" data-ref="C{n}"><b class="ref">C{n}</b><p class="given">a</p><p class="when">b</p><p class="then">c</p></article>' for n in (1, 2))
+
+
+def body(goal='<p class="goal">One line.</p>', scope='<section class="scope"><div class="in">in</div><div class="out">out</div></section>',
+         cards=CARDS, keep=None, svg=SVG, extra=""):
+    keep = KEEP.format(irreversible="none", risks="none", deviations="none") if keep is None else keep
+    return f'{goal}{scope}<section class="cards">{cards}</section>{keep}{svg}{extra}'
+
+
+def page(md, content, head=""):
+    sha = hashlib.sha256(md.encode()).hexdigest()
+    return (f'<!doctype html><html><head><meta charset="utf-8"><meta name="source-sha256" content="{sha}">{head}'
+            f'<title>t</title><style>.x{{color:#C00}}</style></head><body><main>{content}</main></body></html>')
+
+
+class Lint(unittest.TestCase):
+    """`render_gate.py --lint <page.html>`: exit 0 silent, exit 1 with one line per failure, exit 2 on bad use."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def write(self, name, text):
+        path = os.path.join(self.tmp.name, name)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+        return path
+
+    def lint(self, content, md=MD, head="", name="criteria", plan=None):
+        self.write(name + ".md", md)
+        if plan is not None:
+            self.write("plan.md", plan)
+        return run(RENDER, "--lint", self.write(name + ".html", page(md, content, head)))
+
+    def fails(self, out, *needles):
+        self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
+        lines = out.stderr.strip().splitlines()
+        self.assertEqual(len(lines), len(needles), out.stderr)
+        for line, needle in zip(lines, needles):
+            self.assertTrue(line.startswith("lint: ") and needle in line, line)
+
+    def test_4_a_good_page_exits_0_and_prints_nothing(self):
+        out = self.lint(body())
+        self.assertEqual((out.returncode, out.stdout, out.stderr), (0, "", ""))
+
+    def test_4_an_external_url_fails_with_one_line_each(self):
+        for bad in ('<a href="https://cdn.example/x.js">x</a>', '<p>http://example.com</p>', '<img src="a.png">'):
+            self.fails(self.lint(body(extra=bad)), "external URL")
+        self.fails(self.lint(body(), head='<link rel="stylesheet" href="a.css">'), "external URL")
+        self.fails(self.lint(body(), head='<style>@import "a.css";</style>'), "external URL")
+
+    def test_4_other_external_references_fail_too(self):
+        for bad in ('<a href="//cdn.example/x">x</a>', '<a href="ftp://host/f">x</a>', '<p style="background:url(a.png)">x</p>',
+                    '<p style="background:url( \'//h/a.png\')">x</p>', '<iframe></iframe>'):
+            self.fails(self.lint(body(extra=bad)), "external")
+        self.fails(self.lint(body(extra='<object data="a.svg"></object>')), "external URL: <object", "external URL: data=")
+        self.fails(self.lint(body(), head='<meta http-equiv="refresh" content="0;url=x">'), "external")
+        self.fails(self.lint(body(), head='<style>.a{background:url(a.png)}</style>'), "external")
+
+    def test_4_a_local_url_reference_inside_the_svg_is_not_external(self):
+        out = self.lint(body(svg=SVG.replace("<rect", '<path marker-end="url(#arrow)"/><rect')))
+        self.assertEqual((out.returncode, out.stderr), (0, ""))
+
+    def test_4_an_svg_inside_an_html_comment_does_not_count(self):
+        self.fails(self.lint(body(svg="<!-- <svg> -->")), "no inline <svg>")
+
+    def test_5_the_1_1_converter_page_fails_lint_by_design(self):
+        md = self.write("criteria.md", MD + SLICES)
+        self.assertEqual(run(RENDER, md).returncode, 0)
+        out = run(RENDER, "--lint", os.path.join(self.tmp.name, "criteria.html"))
+        self.assertEqual(out.returncode, 1, out.stderr)
+        self.assertIn("no .goal", out.stderr)
+
+    def test_4_a_page_without_an_inline_svg_fails(self):
+        self.fails(self.lint(body(svg="")), "no inline <svg>")
+
+    def test_4_a_reference_that_is_not_in_the_md_fails_but_hex_colours_and_the_sha_do_not_count(self):
+        self.fails(self.lint(body(extra="<p>see C9</p>")), "C9 is not a criterion in criteria.md")
+        ok = self.lint(body(extra='<p style="color:#C00">C1 and C2</p>'), head='<meta name="x" content="C77">')
+        self.assertEqual((ok.returncode, ok.stderr), (0, ""))
+
+    def test_4_a_bold_criteria_line_counts_as_a_criteria_heading_like_in_the_converter(self):
+        md = MD.replace("## Criteria", "**Criteria**")
+        out = self.lint(body(), md=md)
+        self.assertEqual((out.returncode, out.stderr), (0, ""))
+        self.fails(self.lint(body(extra="<p>C9</p>"), md=md), "C9 is not a criterion")
+
+    def test_4_a_paso_reference_is_checked_against_plan_md(self):
+        self.assertEqual(self.lint('<p>Paso 1 and Paso 2</p>' + SVG, md=PLAN, name="plan", plan=PLAN).returncode, 0)
+        self.fails(self.lint('<p>Paso 7</p>' + SVG, md=PLAN, name="plan", plan=PLAN), "Paso 7 is not a step in plan.md")
+
+    def test_4_a_missing_sibling_md_is_one_line(self):
+        path = self.write("criteria.html", page(MD, body()))
+        out = run(RENDER, "--lint", path)
+        self.fails(out, "criteria.md is missing")
+
+    def test_4_a_source_sha256_that_differs_fails(self):
+        self.write("criteria.md", MD)
+        path = self.write("criteria.html", page(MD + "extra\n", body()))
+        self.fails(run(RENDER, "--lint", path), "source-sha256 differs from criteria.md")
+
+    def test_4_bad_use_exits_2(self):
+        self.assertEqual(run(RENDER, "--lint").returncode, 2)
+        self.assertEqual(run(RENDER, "--lint", self.write("notes.html", "x")).returncode, 2)
+
+    def test_4_sha_prints_the_hash_of_the_md_bytes(self):
+        md = self.write("criteria.md", MD)
+        out = run(RENDER, "--sha", md)
+        self.assertEqual(out.stdout.strip(), hashlib.sha256(MD.encode()).hexdigest())
+        self.assertEqual(run(RENDER, "--sha", md + ".none").returncode, 2)
+
+    def test_1_a_page_with_goal_scope_one_card_per_criterion_and_the_slice_svg_passes(self):
+        out = self.lint(body(), md=MD + SLICES)
+        self.assertEqual((out.returncode, out.stderr), (0, ""))
+
+    def test_1_a_missing_goal_scope_card_or_slice_svg_fails(self):
+        self.fails(self.lint(body(goal="")), "no .goal")
+        self.fails(self.lint(body(scope="")), "no .scope")
+        self.fails(self.lint(body(cards=CARDS.split("</article>")[0] + "</article>")), "no card for C2")
+        self.fails(self.lint(body(svg='<svg viewBox="0 0 1 1"></svg>'), md=MD + SLICES), "no svg.slices")
+
+    def test_1_the_structure_is_checked_only_on_criteria_html(self):
+        self.assertEqual(self.lint('<p>x</p>' + SVG, md=PLAN, name="plan").returncode, 0)
+
+    def test_3_the_keep_block_and_its_three_parts_must_exist_with_text(self):
+        self.fails(self.lint(body(keep="<p>nothing</p>")), "no .keep", "no data-keep=irreversible", "no data-keep=risks", "no data-keep=deviations")
+        for part in ("irreversible", "risks", "deviations"):
+            parts = dict(irreversible="a", risks="b", deviations="c")
+            blank = KEEP.format(**{**parts, part: ""})
+            self.fails(self.lint(body(keep=blank)), f"data-keep={part} is empty")
+            gone = blank.replace(f'<div data-keep="{part}"></div>', "")
+            self.fails(self.lint(body(keep=gone)), f"no data-keep={part}")
+        full = KEEP.format(irreversible="push to origin", risks="r", deviations="none")
+        self.assertEqual(self.lint(body(keep=full)).returncode, 0)
+
+    def test_3_5_the_skills_say_never_dropped_lint_retry_once_and_the_one_line_fallback(self):
+        visual = flat(section(read("core", "skills", "visual-guides", "SKILL.md"), "## Gate pages"))
+        grill = flat(read("core", "skills", "grillme", "SKILL.md").split("\n## Closing", 1)[1])
+        for needle in ("never dropped", "--lint", "--sha", "data-keep"):
+            self.assertIn(needle, visual)
+        for needle in ("--lint", "once", "render_gate.py <criteria.md>", "visual summary failed", "never dropped"):
+            self.assertIn(needle, grill)
 
 
 class Check(unittest.TestCase):

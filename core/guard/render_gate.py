@@ -4,11 +4,18 @@
     python3 -I render_gate.py <dir>/criteria.md   -> <dir>/criteria.html   (prints the absolute path)
     python3 -I render_gate.py --check <dir>/criteria.md|.html  -> exit 0 when the .html is fresh, 1 when stale or missing, 2 on bad use
     python3 -I render_gate.py --prefs             -> gate_view=<md|html> and lang=<code> from the composed policy
+    python3 -I render_gate.py --sha <file.md>     -> the sha256 of the .md bytes, for the agent-written page's `source-sha256` meta
+    python3 -I render_gate.py --lint <dir>/criteria.html|plan.html  -> exit 0 silent when the agent-written page is sound, 1 with one
+        `lint: ...` line per failure on stderr, 2 on bad use. Read-only. Checks: no external URL, an inline <svg>, every `C#` / `Paso #`
+        in the visible text exists in the sibling criteria.md / plan.md, source-sha256 matches the .md; a criteria.html also needs
+        .goal, .scope, a card (data-ref="C#") per criterion, .keep with non-empty data-keep irreversible / risks / deviations parts,
+        and svg.slices when the .md has `## Slices`. The 1:1 page of this script fails --lint by design: it is the fallback.
 
 The .md stays the source of truth: the page carries `<meta name="source-sha256">` with the hash of the .md bytes, and
 every numbered line under a "criteria" heading is copied verbatim. A `## Slices` section also becomes a dependency SVG.
 Stdlib only; the output has no external URL (no http, <link>, src= or @import)."""
 import hashlib, html, json, os, re, sys
+from html.parser import HTMLParser
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 TEMPLATES = os.path.join(os.path.dirname(HERE), "skills", "visual-guides", "templates")
@@ -226,6 +233,118 @@ def stale(path):
     return None if found.group(1) == want else f"{page} source-sha256 differs from {md}"
 
 
+EXTERNAL = re.compile(  # any scheme://, https:, a protocol-relative //, url() that is not a #fragment, src=, data=, <link>, <object>, <embed>, <iframe>, @import, http-equiv
+    r"[a-z][a-z0-9+.-]*://[^\s\"'<>)]*|https?:[^\s\"'<>)]*|[=(]\s*[\"']?\s*//[^\s\"'<>)]*|\burl\(\s*(?![\"']?\s*#)[^)]*\)?"
+    r"|<(?:link|object|embed|iframe)\b|\b(?:src|data)\s*=|@import\b|http-equiv", re.I)
+HIDDEN = re.compile(r"<(style|script)\b.*?</\1\s*>|<!--.*?-->|<[^>]*>", re.S | re.I)  # what is not visible text: blocks, comments, tags with attributes
+VOID = {"br", "hr", "img", "input", "meta", "link", "area", "base", "col", "embed", "source", "track", "wbr"}
+KEEP_PARTS = ("irreversible", "risks", "deviations")
+
+
+def numbered_under(md, words):
+    """The numbers of the numbered lines under a heading that has one of `words` in it."""
+    found, inside = set(), False
+    for line in md.splitlines():
+        head = HEADING.match(line)
+        if head or BOLD_LINE.match(line):  # same section markers as blocks(): a heading or a bold line
+            inside = any(w in (head.group(2) if head else line).lower() for w in words)
+        elif inside and NUMBERED.match(line):
+            found.add(int(re.match(r"\s*(\d+)", line).group(1)))
+    return found
+
+
+class Structure(HTMLParser):
+    """What the criteria page has: class names, svg.slices, card refs and the text of each data-keep part."""
+    def __init__(self):
+        super().__init__()
+        self.classes, self.cards, self.keep, self.stack, self.slices = set(), set(), {}, [], False
+
+    def handle_starttag(self, tag, attrs):
+        a = dict(attrs)
+        self.classes.update((a.get("class") or "").split())
+        if tag == "svg" and "slices" in (a.get("class") or "").split():
+            self.slices = True
+        if "card" in (a.get("class") or "").split() and a.get("data-ref"):
+            self.cards.add(a["data-ref"])
+        key = a.get("data-keep")
+        if key is not None:
+            self.keep.setdefault(key, "")
+        if tag not in VOID:
+            self.stack.append((tag, key))
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        if tag not in VOID:
+            self.stack.pop()
+
+    def handle_endtag(self, tag):
+        for i in range(len(self.stack) - 1, -1, -1):
+            if self.stack[i][0] == tag:
+                del self.stack[i:]
+                break
+
+    def handle_data(self, data):
+        for _, key in self.stack:
+            if key is not None:
+                self.keep[key] += data
+
+
+def lint(path):
+    """One `lint: ...` line per failure of the agent-written page at `path` (empty list = sound). Read-only."""
+    base = os.path.abspath(path)
+    folder, name = os.path.split(base)
+    stem = base[:-5]
+    try:
+        with open(base, encoding="utf-8") as f:
+            text = f.read()
+    except (OSError, UnicodeDecodeError) as err:
+        return [f"lint: cannot read {name}: {str(err).splitlines()[0]}"]
+    fails = []
+    for found in dict.fromkeys(m.group(0) for m in EXTERNAL.finditer(text)):
+        fails.append(f"lint: external URL: {found}")
+    if "<svg" not in re.sub(r"<!--.*?-->", "", text, flags=re.S):
+        fails.append("lint: no inline <svg>")
+    visible = html.unescape(HIDDEN.sub(" ", text))
+    sources = {}  # sibling .md name -> its text, or None when missing
+
+    def source(md_name):
+        if md_name not in sources:
+            try:
+                with open(os.path.join(folder, md_name), encoding="utf-8-sig") as f:
+                    sources[md_name] = f.read()
+            except (OSError, UnicodeDecodeError):
+                sources[md_name] = None
+                fails.append(f"lint: {md_name} is missing or unreadable")
+        return sources[md_name]
+
+    for word, md_name, words, noun in (("C", "criteria.md", ("criteria",), "a criterion"), ("Paso ", "plan.md", ("step", "paso"), "a step")):
+        for n in sorted({int(m) for m in re.findall(rf"\b{word}(\d+)\b", visible)}):
+            md = source(md_name)
+            if md is not None and n not in numbered_under(md, words):
+                fails.append(f"lint: {word}{n} is not {noun} in {md_name}")
+    mine = source(name[:-5] + ".md")
+    why = stale(base)
+    if why and mine is not None:
+        fails.append("lint: " + why.replace(folder + os.sep, ""))
+    if name == "criteria.html" and mine is not None:
+        found = Structure()
+        found.feed(text)
+        for cls in ("goal", "scope", "keep"):
+            if cls not in found.classes:
+                fails.append(f"lint: no .{cls}")
+        for n in sorted(numbered_under(mine, ("criteria",))):
+            if f"C{n}" not in found.cards:
+                fails.append(f"lint: no card for C{n}")
+        for part in KEEP_PARTS:
+            if part not in found.keep:
+                fails.append(f"lint: no data-keep={part}")
+            elif not found.keep[part].strip():
+                fails.append(f"lint: data-keep={part} is empty")
+        if slices_of(mine.splitlines()) and not found.slices:
+            fails.append("lint: no svg.slices (the .md has ## Slices)")
+    return fails
+
+
 def prefs():
     """(preferences, warning or None). A gate_view that is not md or html is read as md and the warning says so."""
     sys.path.insert(0, HERE)  # under `python3 -I` the script folder is not on sys.path
@@ -248,6 +367,19 @@ def main(argv):
         if warning:
             print(warning, file=sys.stderr)
         return 0
+    if argv[:1] == ["--sha"] and len(argv) == 2:
+        try:
+            with open(argv[1], "rb") as f:
+                print(hashlib.sha256(f.read()).hexdigest())
+        except OSError as err:
+            print(f"render_gate: cannot read {argv[1]}: {err}", file=sys.stderr)
+            return 2
+        return 0
+    if argv[:1] == ["--lint"] and len(argv) == 2 and os.path.basename(argv[1]) in KINDS.values():
+        fails = lint(argv[1])
+        for line in fails:
+            print(line, file=sys.stderr)
+        return 1 if fails else 0
     check = argv[:1] == ["--check"]
     if check:
         argv = argv[1:]
