@@ -38,7 +38,7 @@ All are in `{{AI_SETUP}}/core/skills/visual-guides/templates/`: one `.html` file
 |---|---|---|
 | `guide` | a how-to for the user: steps as cards, example, "if it fails", next action | you, filling `{{TITLE}}` and `{{BODY}}` |
 | `criteria` | the HTML view of a `criteria.md` | you, filling `{{BODY}}` with the skeleton under "Gate pages" (`render_gate.py` fills the same template 1:1 as fallback) |
-| `plan` | the HTML view of a `plan.md` | only `render_gate.py` |
+| `plan` | the HTML view of a `plan.md` | you, filling `{{BODY}}` with the skeleton under "Gate pages" (`render_gate.py` fills the same template 1:1 as fallback) |
 | `repo-doc` | human docs of a repo that asks for HTML (see "Human docs in a repo"), always English | you, filling `{{TITLE}}` and `{{BODY}}` |
 
 Body of a `guide`: `<p class="lead">` for the one line, then one `<div class="step"><h3><span class="n">1</span>Title</h3>...</div>` per step, `<pre><code>` for the example, a `<table>` for "if it fails", and `<p class="next">` last. Escape every `<`, `>` and `&` you copy from the user's text.
@@ -52,7 +52,7 @@ cat AGENTS.md CONTRIBUTING.md 2>/dev/null | grep -iE '^[[:space:]]*([-*][[:space
 A printed line means declared (exit 0; 1 means not), even when only one of the two files exists. A match means the human docs the ticket adds or changes (guides and how-tos for people; not README, REFERENCE or agent rules) are written as one self-contained `.html` from the `repo-doc` template, always in English whatever `lang` says, next to the neighbouring docs. The declaration overrides only the language and the format of those docs; every other rule of the repo's docs still applies. No match: write docs as the repo's own rules say.
 
 ## Gate pages (`criteria`, `plan`)
-The `.md` is the source of truth and agents keep reading it; the page is a one-screen visual summary of it. `plan` pages are still written only by `render_gate.py`.
+The `.md` is the source of truth and agents keep reading it; the page is a one-screen visual summary of it.
 
 **`criteria.html`, written by you** from the `criteria` template: get the hash with `python3 -I {{AI_SETUP}}/core/guard/render_gate.py --sha <dir>/criteria.md` (fills `{{SHA}}`), keep the template's `<head>` and CSS, and fill `{{BODY}}`:
 ```
@@ -71,9 +71,28 @@ The `.md` is the source of truth and agents keep reading it; the page is a one-s
 - SVG: inline, no `xmlns`, colours with `currentColor` or the template's variables. With `## Slices` in the `.md`, copy the slice SVG (`svg.slices`) that `render_gate.py <criteria.md>` draws; otherwise draw a small criteria-flow SVG. Escape every `<`, `>` and `&` you copy.
 - No external URL (no `http`, `<link>`, `src=`, `@import`).
 
-**Check it** with `render_gate.py --lint <dir>/criteria.html`: exit 0 and silent is a pass; exit 1 prints one `lint: ...` line per failure (external URL, no inline `<svg>`, a `C#` or `Paso #` missing from the sibling `.md`, `source-sha256` differing, no goal / scope / card / `keep` part / `svg.slices`). Fix and lint once more. Failing twice: write the 1:1 page instead with `python3 -I {{AI_SETUP}}/core/guard/render_gate.py <dir>/criteria.md` (it copies every criterion line verbatim, stores the hash in `<meta name="source-sha256">`, draws the slice SVG, prints the path) and say in the gate message that the visual summary failed and why. A 1:1 page fails `--lint` by design and is never reused as a visual page.
+**Check it** with `render_gate.py --lint <dir>/criteria.html` (or `plan.html`): exit 0 and silent is a pass; exit 1 prints one `lint: ...` line per failure (external URL, no inline `<svg>`, a `C#` or `Paso #` missing from the sibling `.md`, `source-sha256` differing, no goal / scope / card / `keep` part / `svg.slices`). Fix and lint once more. Failing twice: write the 1:1 page instead with `python3 -I {{AI_SETUP}}/core/guard/render_gate.py <dir>/criteria.md` (`plan.md` for a plan) (it copies every criterion line verbatim, stores the hash in `<meta name="source-sha256">`, draws the slice SVG, prints the path) and say in the gate message that the visual summary failed and why. A 1:1 page (criteria or plan) fails `--lint` by design and is never reused as a visual page; lint only a page you have just written, never a reused fresh one.
 
-Gates check the page is fresh with `render_gate.py --check <file>` (exit 1 when stale or missing) and re-render before showing it.
+**`plan.html`, written by you** from the `plan` template, same hash step (`--sha <dir>/plan.md`) and same `keep` block as above. The `.md` needs a `## Steps` heading (exactly that, the numbered lines under it are the steps; keep nested lists and bold lines inside it if you like). Fill `{{BODY}}`:
+```
+<p class="goal">goal in one line</p>
+<svg class="flow" viewBox="0 0 W H"><g data-step="1"><rect …/><text>Paso 1</text><text>its check</text></g> …one per step</svg>
+<section class="map"><div data-map="touched">files or areas changed, or none</div>
+  <div data-map="untouched">what stays as it is, or none</div>
+  <div data-map="removed">what is deleted, or none</div></section>
+<div class="matrix">criterion → step → test, as a table</div>        <!-- only when the plan has a "Criteria map" -->
+<div class="before-after">before … after, as a small diagram</div>   <!-- only when a heading has before and after -->
+<section class="keep"> …same three data-keep parts as criteria.html… </section>
+```
+- `Paso N` is one text node (`<text>Paso 3</text>`, never split in tspans or `Paso <b>3</b>`), and each step is a `<g data-step="N">` with a second text node: the check of that step. Number steps exactly as the `.md` does.
+- `.map`: all three `data-map` parts are always there with text; write `none` when empty. Add `.matrix` and `.before-after` only when the plan has them (a "Criteria map" section; a heading with before and after); never invent them.
+- Open questions, risks, irreversible actions and deviations go in `keep`, never dropped (see above).
+- Lint with `render_gate.py --lint <dir>/plan.html` as in "Check it" above: no goal / `svg.flow` / `data-step` group / check text / `data-map` part / `keep` part, a missing `.matrix` or `.before-after` the `.md` calls for, or a `.md` with no numbered steps.
+
+Gates check the page is fresh with `render_gate.py --check <file>` (exit 1 when stale or missing) and act on the result:
+- fresh (exit 0): reuse the page, lint nothing.
+- missing: write it (above) and lint it; failing twice, the 1:1 page.
+- stale (the `.md` changed after the gate was shown): never re-render it and never rewrite it. Show the `.md` diff in chat and run `python3 -I {{AI_SETUP}}/core/guard/render_gate.py --mark-stale <dir>/<page>.html`: it inserts an "outdated, see .md" banner right after `<body>` and changes nothing else (exit 1 when the page is fresh, 2 when it has no `<body>`); `--check` still exits 1 afterwards.
 
 ## Before handing it over
 Read only the title and step headings: can the reader do the task? If not, cut and reorder.
