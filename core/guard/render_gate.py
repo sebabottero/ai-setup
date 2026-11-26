@@ -233,7 +233,9 @@ def stale(path):
     return None if found.group(1) == want else f"{page} source-sha256 differs from {md}"
 
 
-EXTERNAL = re.compile(r"https?:[^\s\"'<>)]*|<link\b|\bsrc\s*=|@import\b", re.I)
+EXTERNAL = re.compile(  # any scheme://, https:, a protocol-relative //, url() that is not a #fragment, src=, data=, <link>, <object>, <embed>, <iframe>, @import, http-equiv
+    r"[a-z][a-z0-9+.-]*://[^\s\"'<>)]*|https?:[^\s\"'<>)]*|[=(]\s*[\"']?\s*//[^\s\"'<>)]*|\burl\(\s*(?![\"']?\s*#)[^)]*\)?"
+    r"|<(?:link|object|embed|iframe)\b|\b(?:src|data)\s*=|@import\b|http-equiv", re.I)
 HIDDEN = re.compile(r"<(style|script)\b.*?</\1\s*>|<!--.*?-->|<[^>]*>", re.S | re.I)  # what is not visible text: blocks, comments, tags with attributes
 VOID = {"br", "hr", "img", "input", "meta", "link", "area", "base", "col", "embed", "source", "track", "wbr"}
 KEEP_PARTS = ("irreversible", "risks", "deviations")
@@ -300,7 +302,7 @@ def lint(path):
     fails = []
     for found in dict.fromkeys(m.group(0) for m in EXTERNAL.finditer(text)):
         fails.append(f"lint: external URL: {found}")
-    if "<svg" not in text:
+    if "<svg" not in re.sub(r"<!--.*?-->", "", text, flags=re.S):
         fails.append("lint: no inline <svg>")
     visible = html.unescape(HIDDEN.sub(" ", text))
     sources = {}  # sibling .md name -> its text, or None when missing

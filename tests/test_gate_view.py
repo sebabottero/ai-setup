@@ -86,6 +86,28 @@ class Lint(unittest.TestCase):
         self.fails(self.lint(body(), head='<link rel="stylesheet" href="a.css">'), "external URL")
         self.fails(self.lint(body(), head='<style>@import "a.css";</style>'), "external URL")
 
+    def test_4_other_external_references_fail_too(self):
+        for bad in ('<a href="//cdn.example/x">x</a>', '<a href="ftp://host/f">x</a>', '<p style="background:url(a.png)">x</p>',
+                    '<p style="background:url( \'//h/a.png\')">x</p>', '<iframe></iframe>'):
+            self.fails(self.lint(body(extra=bad)), "external")
+        self.fails(self.lint(body(extra='<object data="a.svg"></object>')), "external URL: <object", "external URL: data=")
+        self.fails(self.lint(body(), head='<meta http-equiv="refresh" content="0;url=x">'), "external")
+        self.fails(self.lint(body(), head='<style>.a{background:url(a.png)}</style>'), "external")
+
+    def test_4_a_local_url_reference_inside_the_svg_is_not_external(self):
+        out = self.lint(body(svg=SVG.replace("<rect", '<path marker-end="url(#arrow)"/><rect')))
+        self.assertEqual((out.returncode, out.stderr), (0, ""))
+
+    def test_4_an_svg_inside_an_html_comment_does_not_count(self):
+        self.fails(self.lint(body(svg="<!-- <svg> -->")), "no inline <svg>")
+
+    def test_5_the_1_1_converter_page_fails_lint_by_design(self):
+        md = self.write("criteria.md", MD + SLICES)
+        self.assertEqual(run(RENDER, md).returncode, 0)
+        out = run(RENDER, "--lint", os.path.join(self.tmp.name, "criteria.html"))
+        self.assertEqual(out.returncode, 1, out.stderr)
+        self.assertIn("no .goal", out.stderr)
+
     def test_4_a_page_without_an_inline_svg_fails(self):
         self.fails(self.lint(body(svg="")), "no inline <svg>")
 
