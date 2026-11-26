@@ -37,7 +37,7 @@ All are in `{{AI_SETUP}}/core/skills/visual-guides/templates/`: one `.html` file
 | Template | Use it for | Who writes it |
 |---|---|---|
 | `guide` | a how-to for the user: steps as cards, example, "if it fails", next action | you, filling `{{TITLE}}` and `{{BODY}}` |
-| `criteria` | the HTML view of a `criteria.md` | only `render_gate.py` |
+| `criteria` | the HTML view of a `criteria.md` | you, filling `{{BODY}}` with the skeleton under "Gate pages" (`render_gate.py` fills the same template 1:1 as fallback) |
 | `plan` | the HTML view of a `plan.md` | only `render_gate.py` |
 | `repo-doc` | human docs of a repo that asks for HTML (see "Human docs in a repo"), always English | you, filling `{{TITLE}}` and `{{BODY}}` |
 
@@ -52,12 +52,27 @@ cat AGENTS.md CONTRIBUTING.md 2>/dev/null | grep -iE '^[[:space:]]*([-*][[:space
 A printed line means declared (exit 0; 1 means not), even when only one of the two files exists. A match means the human docs the ticket adds or changes (guides and how-tos for people; not README, REFERENCE or agent rules) are written as one self-contained `.html` from the `repo-doc` template, always in English whatever `lang` says, next to the neighbouring docs. The declaration overrides only the language and the format of those docs; every other rule of the repo's docs still applies. No match: write docs as the repo's own rules say.
 
 ## Gate pages (`criteria`, `plan`)
-Never write these by hand. The `.md` is the source of truth and agents keep reading it:
+The `.md` is the source of truth and agents keep reading it; the page is a one-screen visual summary of it. `plan` pages are still written only by `render_gate.py`.
 
+**`criteria.html`, written by you** from the `criteria` template: get the hash with `python3 -I {{AI_SETUP}}/core/guard/render_gate.py --sha <dir>/criteria.md` (fills `{{SHA}}`), keep the template's `<head>` and CSS, and fill `{{BODY}}`:
 ```
-python3 -I {{AI_SETUP}}/core/guard/render_gate.py <dir>/criteria.md
+<p class="goal">goal in one line</p>
+<section class="scope"><div class="in">in scope</div><div class="out">out of scope</div></section>
+<section class="cards"><article class="card" data-ref="C1"><b class="ref">C1</b>
+  <p class="given">…</p><p class="when">…</p><p class="then">…</p></article> …one per criterion</section>
+<section class="keep">
+  <div data-keep="irreversible">push, delete, tracker/Drive/sheet writes, migrations, or none</div>
+  <div data-keep="risks">open questions and risks, or none</div>
+  <div data-keep="deviations">deviations from the handoff, or none</div></section>
+<svg class="slices" …>
 ```
-It writes the sibling `.html`, copies every criterion line verbatim, stores the hash of the `.md` in `<meta name="source-sha256">`, draws the slice dependency SVG when the `.md` has `## Slices`, and prints the path.
+- The `keep` block is always present and its content is never dropped by the summary: copy every irreversible action, open question, risk and deviation from the `.md`; write `none` when there is nothing, never leave a part empty.
+- Number cards `C1`… exactly as in the `.md`; never invent a `C#` or `Paso #` that the `.md` does not have.
+- SVG: inline, no `xmlns`, colours with `currentColor` or the template's variables. With `## Slices` in the `.md`, copy the slice SVG (`svg.slices`) that `render_gate.py <criteria.md>` draws; otherwise draw a small criteria-flow SVG. Escape every `<`, `>` and `&` you copy.
+- No external URL (no `http`, `<link>`, `src=`, `@import`).
+
+**Check it** with `render_gate.py --lint <dir>/criteria.html`: exit 0 and silent is a pass; exit 1 prints one `lint: ...` line per failure (external URL, no inline `<svg>`, a `C#` or `Paso #` missing from the sibling `.md`, `source-sha256` differing, no goal / scope / card / `keep` part / `svg.slices`). Fix and lint once more. Failing twice: write the 1:1 page instead with `python3 -I {{AI_SETUP}}/core/guard/render_gate.py <dir>/criteria.md` (it copies every criterion line verbatim, stores the hash in `<meta name="source-sha256">`, draws the slice SVG, prints the path) and say in the gate message that the visual summary failed and why. A 1:1 page fails `--lint` by design and is never reused as a visual page.
+
 Gates check the page is fresh with `render_gate.py --check <file>` (exit 1 when stale or missing) and re-render before showing it.
 
 ## Before handing it over
