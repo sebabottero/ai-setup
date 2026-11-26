@@ -17,6 +17,17 @@ pre{background:var(--card);border:1px solid var(--line);border-radius:8px;paddin
 table{border-collapse:collapse;width:100%;margin:1em 0}th,td{border:1px solid var(--line);padding:6px 10px;text-align:left;vertical-align:top}th{background:var(--card)}
 .lead{color:var(--mute);margin:0 0 1.5em}
 ul.criteria{list-style:none;padding:0}li.criterion{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--acc);border-radius:8px;padding:10px 14px;margin:10px 0}
+.goal{font-size:1.15rem;font-weight:600;margin:0 0 1em}
+svg.flow{display:block;color:var(--mute);max-width:100%;height:auto;margin:1em 0}svg.flow rect{fill:var(--card);stroke:var(--acc);stroke-width:1.5}svg.flow text{fill:var(--fg);font:13px system-ui,sans-serif}svg.flow text:first-of-type{font-weight:700;fill:var(--acc)}
+.map{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:1em 0}.map>div{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 14px}.map>div::before{display:block;font-size:.8rem;font-weight:700;text-transform:uppercase;color:var(--mute)}
+.map [data-map=touched]{border-top:4px solid var(--acc)}.map [data-map=untouched]{border-top:4px solid var(--ok)}.map [data-map=removed]{border-top:4px solid var(--warn)}
+.map [data-map=touched]::before{content:"touched"}.map [data-map=untouched]::before{content:"not touched"}.map [data-map=removed]::before{content:"removed"}
+.before-after{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:1em 0}.before-after>*{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 14px}
+.matrix{overflow:auto;margin:1em 0}
+.keep{border:2px solid var(--warn);border-radius:8px;padding:6px 14px;margin:1em 0}.keep>div{margin:.5em 0}.keep>div::before{display:block;font-size:.8rem;font-weight:700;text-transform:uppercase;color:var(--warn)}
+.keep [data-keep=irreversible]::before{content:"irreversible actions"}.keep [data-keep=risks]::before{content:"open questions and risks"}.keep [data-keep=deviations]::before{content:"deviations from the handoff"}
+.stale{position:sticky;top:0;z-index:9;margin:0;padding:10px 16px;background:var(--warn);color:#fff;font-weight:600;text-align:center}
+@media (max-width:560px){.before-after{grid-template-columns:1fr}}
 .slice-graph{overflow:auto}svg.slices{color:var(--mute);max-width:100%;height:auto}svg.slices rect{fill:var(--card);stroke:var(--acc);stroke-width:1.5}svg.slices text{fill:var(--fg);font:13px system-ui,sans-serif}svg.slices .id{font-weight:700}svg.slices .label{fill:var(--mute);font-size:11px}
 </style>
 </head>

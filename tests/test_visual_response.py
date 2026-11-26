@@ -174,6 +174,22 @@ class Skill(unittest.TestCase):
             self.assertIn("prefers-color-scheme", page)
             self.assertEqual("source-sha256" in parsed.metas, name in ("criteria", "plan"), name)
 
+    def test_2_the_plan_template_has_the_css_of_every_part_of_the_plan_page(self):
+        css = read("core", "skills", "visual-guides", "templates", "plan.html").split("</style>")[0]
+        for selector in (".goal", "svg.flow", ".map", ".before-after", ".matrix", ".keep", ".stale"):
+            self.assertIn(selector, css)
+        self.assertNotRegex(css, r"url\(", "the stale banner is inline, the CSS needs no url(")
+
+    def test_2_visual_guides_has_the_plan_html_skeleton_written_by_the_agent(self):
+        text = read("core", "skills", "visual-guides", "SKILL.md")
+        self.assertNotRegex(text, r"only\s+`?render_gate\.py`?")
+        self.assertRegex(text, r"\|\s*`plan`\s*\|[^\n]*\|[^\n]*you[^\n]*\|")
+        gate = " ".join(text.split("## Gate pages", 1)[1].split("\n## Before handing", 1)[0].split())
+        for needle in ("`plan.html`, written by you", "`## Steps`", '<svg class="flow"', '<g data-step="1">', "Paso N", "one text node",
+                       'data-map="touched"', 'data-map="untouched"', 'data-map="removed"', "class=\"matrix\"", "class=\"before-after\"",
+                       "only when the plan has", "--lint", "--mark-stale", "outdated", "never re-render", "fails `--lint` by design"):
+            self.assertIn(needle, gate)
+
     def test_2_skill_keeps_the_generic_guide_structure(self):
         text = read("core", "skills", "visual-guides", "SKILL.md")
         for part in ("Title + one line", "Step by step", "Real example", "If it fails", "Last line"):

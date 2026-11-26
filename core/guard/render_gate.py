@@ -9,7 +9,13 @@
         `lint: ...` line per failure on stderr, 2 on bad use. Read-only. Checks: no external URL, an inline <svg>, every `C#` / `Paso #`
         in the visible text exists in the sibling criteria.md / plan.md, source-sha256 matches the .md; a criteria.html also needs
         .goal, .scope, a card (data-ref="C#") per criterion, .keep with non-empty data-keep irreversible / risks / deviations parts,
-        and svg.slices when the .md has `## Slices`. The 1:1 page of this script fails --lint by design: it is the fallback.
+        and svg.slices when the .md has `## Slices`; a plan.html also needs .goal, svg.flow with one <g data-step="N"> per numbered step
+        under `## Steps` (a `Paso N` text node plus a check text), .map with non-empty data-map touched / untouched / removed parts, .keep as
+        above, .matrix when the .md has a "Criteria map" heading and .before-after when a heading matches before.*after. A plan.md with no
+        numbered steps fails. The 1:1 page of this script fails --lint by design (criteria.html and plan.html): it is the fallback.
+    python3 -I render_gate.py --mark-stale <dir>/criteria.html|plan.html  -> insert a visible `<div class="stale">` "outdated, see .md" banner
+        (inline style, no url()) right after <body> of a page that is out of date, and nothing else: the rest stays byte for byte, a second
+        run changes nothing (exit 0), exit 1 when the page is fresh, 2 on bad use or when the page has no <body>. --check still exits 1.
 
 The .md stays the source of truth: the page carries `<meta name="source-sha256">` with the hash of the .md bytes, and
 every numbered line under a "criteria" heading is copied verbatim. A `## Slices` section also becomes a dependency SVG.
@@ -239,6 +245,25 @@ EXTERNAL = re.compile(  # any scheme://, https:, a protocol-relative //, url() t
 HIDDEN = re.compile(r"<(style|script)\b.*?</\1\s*>|<!--.*?-->|<[^>]*>", re.S | re.I)  # what is not visible text: blocks, comments, tags with attributes
 VOID = {"br", "hr", "img", "input", "meta", "link", "area", "base", "col", "embed", "source", "track", "wbr"}
 KEEP_PARTS = ("irreversible", "risks", "deviations")
+MAP_PARTS = ("touched", "untouched", "removed")
+
+
+def steps_of(md):
+    """The numbers of the top-level numbered lines under the `## Steps` heading (a heading whose text contains "step" or "paso").
+    Bold lines do not end it and indented (nested) numbers do not count; a deeper sub-heading stays inside,
+    a heading of the same or higher level ends it."""
+    found, inside, level = [], False, 0
+    for line in md.splitlines():
+        head = HEADING.match(line)
+        if head and inside and len(head.group(1)) > level:
+            continue
+        if head:
+            text = head.group(2).lower()
+            inside = "step" in text or "paso" in text
+            level = len(head.group(1))
+        elif inside and NUMBERED.match(line) and not line[:1].isspace():
+            found.append(int(re.match(r"\d+", line).group(0)))
+    return found
 
 
 def numbered_under(md, words):
@@ -254,23 +279,35 @@ def numbered_under(md, words):
 
 
 class Structure(HTMLParser):
-    """What the criteria page has: class names, svg.slices, card refs and the text of each data-keep part."""
+    """What the page has: class names, svg.slices, svg.flow, card refs, the text of each data-keep / data-map part and the text nodes of
+    each <g data-step> inside an svg.flow."""
     def __init__(self):
         super().__init__()
-        self.classes, self.cards, self.keep, self.stack, self.slices = set(), set(), {}, [], False
+        self.classes, self.cards, self.keep, self.maps, self.steps = set(), set(), {}, {}, {}
+        self.stack, self.slices, self.flow = [], False, False
 
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
-        self.classes.update((a.get("class") or "").split())
-        if tag == "svg" and "slices" in (a.get("class") or "").split():
+        names = (a.get("class") or "").split()
+        self.classes.update(names)
+        if tag == "svg" and "slices" in names:
             self.slices = True
-        if "card" in (a.get("class") or "").split() and a.get("data-ref"):
+        if tag == "svg" and "flow" in names:
+            self.flow = True
+        if "card" in names and a.get("data-ref"):
             self.cards.add(a["data-ref"])
-        key = a.get("data-keep")
+        key, part, step = a.get("data-keep"), a.get("data-map"), a.get("data-step")
         if key is not None:
             self.keep.setdefault(key, "")
+        if part is not None:
+            self.maps.setdefault(part, "")
+        in_flow = any(e[3] for e in self.stack) or (tag == "svg" and "flow" in names)
+        if step is not None and in_flow and tag == "g":
+            self.steps.setdefault(step, [])
+        else:
+            step = None
         if tag not in VOID:
-            self.stack.append((tag, key))
+            self.stack.append((tag, key, part, tag == "svg" and "flow" in names, step))
 
     def handle_startendtag(self, tag, attrs):
         self.handle_starttag(tag, attrs)
@@ -284,9 +321,56 @@ class Structure(HTMLParser):
                 break
 
     def handle_data(self, data):
-        for _, key in self.stack:
+        for _, key, part, _, step in self.stack:
             if key is not None:
                 self.keep[key] += data
+            if part is not None:
+                self.maps[part] += data
+            if step is not None:
+                self.steps[step].append(data)
+
+
+def parts_missing(found, attr, wanted, fails):
+    """One line per wanted data-<attr> part that is missing or has no text."""
+    have = found.keep if attr == "keep" else found.maps
+    for part in wanted:
+        if part not in have:
+            fails.append(f"lint: no data-{attr}={part}")
+        elif not have[part].strip():
+            fails.append(f"lint: data-{attr}={part} is empty")
+
+
+def plan_structure(found, md, fails):
+    """The checks of a plan.html against its plan.md: goal, svg.flow with one data-step group per step, map, keep, matrix, before-after."""
+    if "goal" not in found.classes:
+        fails.append("lint: no .goal")
+    steps = steps_of(md)
+    if not steps:
+        fails.append("lint: plan.md has no numbered steps")
+    if not found.flow:
+        fails.append("lint: no svg.flow")
+    for n in steps:
+        nodes = found.steps.get(str(n))
+        if nodes is None:
+            fails.append(f"lint: no data-step={n} in svg.flow")
+            continue
+        texts = [t.strip() for t in nodes if t.strip()]
+        label = f"Paso {n}"
+        if label not in texts:
+            fails.append(f"lint: data-step={n} has no single `{label}` text")
+        elif all(t == label for t in texts):  # nothing but the label: no check
+            fails.append(f"lint: data-step={n} has no check text")
+    if "map" not in found.classes:
+        fails.append("lint: no .map")
+    parts_missing(found, "map", MAP_PARTS, fails)
+    if "keep" not in found.classes:
+        fails.append("lint: no .keep")
+    parts_missing(found, "keep", KEEP_PARTS, fails)
+    headings = [m.group(2).lower() for m in map(HEADING.match, md.splitlines()) if m]
+    if any("criteria map" in h for h in headings) and "matrix" not in found.classes:
+        fails.append("lint: no .matrix (the .md has a Criteria map)")
+    if any(re.search(r"before.*after", h) for h in headings) and "before-after" not in found.classes:
+        fails.append("lint: no .before-after (the .md has a before/after heading)")
 
 
 def lint(path):
@@ -320,7 +404,8 @@ def lint(path):
     for word, md_name, words, noun in (("C", "criteria.md", ("criteria",), "a criterion"), ("Paso ", "plan.md", ("step", "paso"), "a step")):
         for n in sorted({int(m) for m in re.findall(rf"\b{word}(\d+)\b", visible)}):
             md = source(md_name)
-            if md is not None and n not in numbered_under(md, words):
+            known = set(steps_of(md)) if md is not None and word == "Paso " else numbered_under(md, words) if md is not None else set()
+            if md is not None and n not in known:
                 fails.append(f"lint: {word}{n} is not {noun} in {md_name}")
     mine = source(name[:-5] + ".md")
     why = stale(base)
@@ -335,14 +420,51 @@ def lint(path):
         for n in sorted(numbered_under(mine, ("criteria",))):
             if f"C{n}" not in found.cards:
                 fails.append(f"lint: no card for C{n}")
-        for part in KEEP_PARTS:
-            if part not in found.keep:
-                fails.append(f"lint: no data-keep={part}")
-            elif not found.keep[part].strip():
-                fails.append(f"lint: data-keep={part} is empty")
+        parts_missing(found, "keep", KEEP_PARTS, fails)
         if slices_of(mine.splitlines()) and not found.slices:
             fails.append("lint: no svg.slices (the .md has ## Slices)")
+    if name == "plan.html" and mine is not None:
+        found = Structure()
+        found.feed(text)
+        plan_structure(found, mine, fails)
     return fails
+
+
+BANNER_STYLE = "position:sticky;top:0;z-index:9;margin:0;padding:10px 16px;background:#b3261e;color:#fff;font:600 15px system-ui,sans-serif;text-align:center"
+SKIPPED = re.compile(rb"<!--.*?-->|<(script|style)\b.*?</\1\s*>", re.S | re.I)  # where a tag is not a tag
+BODY_TAG = re.compile(rb"<body(?:\s(?:\"[^\"]*\"|'[^']*'|[^>\"'])*)?>", re.I)
+STALE_DIV = re.compile(rb"<div\s+class=\"stale\"", re.I)
+
+
+def outside(pattern, raw):
+    """The first match of `pattern` in `raw` that is not inside a comment, <script> or <style>, or None."""
+    spans = [m.span() for m in SKIPPED.finditer(raw)]
+    return next((m for m in pattern.finditer(raw) if not any(a <= m.start() < b for a, b in spans)), None)
+
+
+def mark_stale(path):
+    """(exit code, message). Inserts the banner right after <body> of a stale page, byte-exact; nothing else changes."""
+    why = stale(path)
+    if why is None:
+        return 1, "render_gate: page is fresh, nothing to mark"
+    try:
+        with open(path, "rb") as f:
+            raw = f.read()
+    except OSError as err:
+        return 2, f"render_gate: cannot read {path}: {err}"
+    if outside(STALE_DIV, raw):
+        return 0, os.path.abspath(path)
+    body = outside(BODY_TAG, raw)
+    if not body:
+        return 2, f"render_gate: {path} has no <body>, nothing marked"
+    md = os.path.basename(path)[:-5] + ".md"
+    banner = f'<div class="stale" style="{BANNER_STYLE}">Outdated, see .md: {md} changed after this page was written.</div>'.encode()
+    try:
+        with open(path, "wb") as f:
+            f.write(raw[:body.end()] + banner + raw[body.end():])
+    except OSError as err:
+        return 2, f"render_gate: cannot write {path}: {err}"
+    return 0, os.path.abspath(path)
 
 
 def prefs():
@@ -380,6 +502,13 @@ def main(argv):
         for line in fails:
             print(line, file=sys.stderr)
         return 1 if fails else 0
+    if argv[:1] == ["--mark-stale"]:
+        if len(argv) != 2 or os.path.basename(argv[1]) not in KINDS.values():
+            print(__doc__.split("\n\n")[0], file=sys.stderr)
+            return 2
+        code, message = mark_stale(argv[1])
+        print(message, file=sys.stdout if code == 0 else sys.stderr)
+        return code
     check = argv[:1] == ["--check"]
     if check:
         argv = argv[1:]

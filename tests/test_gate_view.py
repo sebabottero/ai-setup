@@ -1,5 +1,5 @@
 """Gate view: `render_gate.py --check`, and grillme / ticket-flow using the HTML view only when `gate_view` is html.
-One test per criterion of the ticket, named after it. Criteria 1, 3, 4 and 5."""
+One test per criterion of the ticket, named after it. Criteria 1 to 6."""
 import hashlib, json, os, re, subprocess, sys, tempfile, unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
@@ -33,6 +33,8 @@ def flat(text):
 MD = "# Criteria: sample\n## Goal\nOne line.\n## Criteria\n1. Given a, when b, then c.\n2. Given d, when e, then f.\n## Done\nAll pass.\n"
 SLICES = "## Slices\n- PR1: criteria 1 · first\n- PR2: criteria 2 · depends on PR1\n"
 PLAN = "# Plan: sample\n## Steps\n1. Tests first.\n2. Code.\n"
+PLAN2 = ("# Plan: sample\n## Steps (one writer)\n1. Tests first.\n   3. nested one\n   4. nested two\n**Note** a bold line inside Steps\n"
+         "2. Code.\n## Criteria map\n- C1 -> steps 1, 2\n## Before and after\nold -> new\n")
 KEEP = ('<section class="keep"><div data-keep="irreversible">{irreversible}</div><div data-keep="risks">{risks}</div>'
         '<div data-keep="deviations">{deviations}</div></section>')
 SVG = '<svg class="slices" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>'
@@ -43,6 +45,21 @@ def body(goal='<p class="goal">One line.</p>', scope='<section class="scope"><di
          cards=CARDS, keep=None, svg=SVG, extra=""):
     keep = KEEP.format(irreversible="none", risks="none", deviations="none") if keep is None else keep
     return f'{goal}{scope}<section class="cards">{cards}</section>{keep}{svg}{extra}'
+
+
+def flow(steps=(1, 2), check="red then green"):
+    groups = "".join(f'<g data-step="{n}"><rect width="5" height="5"/><text>Paso {n}</text><text>{check}</text></g>' for n in steps)
+    return f'<svg class="flow" viewBox="0 0 10 10">{groups}</svg>'
+
+
+MAP = ('<section class="map"><div data-map="touched">a.py</div><div data-map="untouched">b.py</div>'
+       '<div data-map="removed">{removed}</div></section>')
+
+
+def plan_body(goal='<p class="goal">One line.</p>', svg=None, maps=None, keep=None, extra=""):
+    keep = KEEP.format(irreversible="none", risks="none", deviations="none") if keep is None else keep
+    maps = MAP.format(removed="none") if maps is None else maps
+    return f'{goal}{flow() if svg is None else svg}{maps}{keep}{extra}'
 
 
 def page(md, content, head=""):
@@ -123,8 +140,61 @@ class Lint(unittest.TestCase):
         self.fails(self.lint(body(extra="<p>C9</p>"), md=md), "C9 is not a criterion")
 
     def test_4_a_paso_reference_is_checked_against_plan_md(self):
-        self.assertEqual(self.lint('<p>Paso 1 and Paso 2</p>' + SVG, md=PLAN, name="plan", plan=PLAN).returncode, 0)
-        self.fails(self.lint('<p>Paso 7</p>' + SVG, md=PLAN, name="plan", plan=PLAN), "Paso 7 is not a step in plan.md")
+        self.assertEqual(self.lint(plan_body(extra='<p>Paso 1 and Paso 2</p>'), md=PLAN, name="plan", plan=PLAN).returncode, 0)
+        self.fails(self.lint(plan_body(extra='<p>Paso 7</p>'), md=PLAN, name="plan", plan=PLAN), "Paso 7 is not a step in plan.md")
+
+    def test_2_a_plan_page_with_goal_flow_map_and_keep_passes(self):
+        out = self.lint(plan_body(extra='<div class="matrix">m</div><div class="before-after">b</div>'), md=PLAN2, name="plan")
+        self.assertEqual((out.returncode, out.stderr), (0, ""))
+
+    def test_2_a_plan_page_without_goal_flow_map_or_keep_fails(self):
+        md = PLAN2.split("## Criteria map")[0]
+        self.fails(self.lint(plan_body(goal=""), md=md, name="plan"), "no .goal")
+        self.fails(self.lint(plan_body(svg='<svg viewBox="0 0 1 1"></svg>'), md=md, name="plan"), "no svg.flow", "no data-step=1", "no data-step=2")
+        self.fails(self.lint(plan_body(maps=""), md=md, name="plan"), "no .map", "no data-map=touched", "no data-map=untouched", "no data-map=removed")
+        self.fails(self.lint(plan_body(keep="<p>x</p>"), md=md, name="plan"), "no .keep", "no data-keep=irreversible", "no data-keep=risks", "no data-keep=deviations")
+
+    def test_2_every_map_part_needs_text_and_every_step_a_group_with_paso_n_and_a_check(self):
+        md = PLAN2.split("## Criteria map")[0]
+        self.fails(self.lint(plan_body(maps=MAP.format(removed="")), md=md, name="plan"), "data-map=removed is empty")
+        self.fails(self.lint(plan_body(maps=MAP.format(removed="x").replace('<div data-map="touched">a.py</div>', "")), md=md, name="plan"),
+                   "no data-map=touched")
+        self.fails(self.lint(plan_body(svg=flow(steps=(1,))), md=md, name="plan"), "no data-step=2")
+        self.fails(self.lint(plan_body(svg=flow(check="  ")), md=md, name="plan"), "data-step=1 has no check text", "data-step=2 has no check text")
+        split = flow().replace("<text>Paso 2</text>", "<text>Paso <tspan>2</tspan></text>")
+        self.fails(self.lint(plan_body(svg=split), md=md, name="plan"), "data-step=2 has no single `Paso 2` text")
+        outside = '<svg class="flow" viewBox="0 0 1 1"></svg><svg viewBox="0 0 1 1"><g data-step="1"><text>Paso 1</text><text>c</text></g></svg>'
+        self.fails(self.lint(plan_body(svg=outside), md=md, name="plan"), "no data-step=1", "no data-step=2")
+
+    def test_2_a_matrix_or_before_after_is_required_only_when_the_md_has_them(self):
+        plain = "# Plan: sample\n## Steps\n1. a\n2. b\n"
+        self.assertEqual(self.lint(plan_body(), md=plain, name="plan").returncode, 0)
+        self.fails(self.lint(plan_body(), md=plain + "## Criteria map\n- C1 -> 1\n", name="plan"), "no .matrix")
+        self.fails(self.lint(plan_body(), md=plain + "## Before / after\nx\n", name="plan"), "no .before-after")
+        self.fails(self.lint(plan_body(), md=PLAN2, name="plan"), "no .matrix", "no .before-after")
+        ok = self.lint(plan_body(extra='<div class="matrix"></div>'), md=plain + "## Criteria map\n- C1 -> 1\n", name="plan")
+        self.assertEqual((ok.returncode, ok.stderr), (0, ""))
+        self.assertEqual(self.lint(plan_body(extra='<div class="matrix"></div><div class="before-after"></div>'), md=plain, name="plan").returncode, 0)
+
+    def test_2_a_plan_with_zero_numbered_steps_fails(self):
+        self.fails(self.lint(plan_body(svg=flow(steps=())), md="# Plan: sample\n## Steps\nnothing numbered\n", name="plan"),
+                   "plan.md has no numbered steps")
+        self.fails(self.lint(plan_body(svg=flow(steps=())), md="# Plan: sample\n## Goal\n1. not a step\n", name="plan"), "plan.md has no numbered steps")
+
+    def test_2_a_nested_list_and_a_bold_line_inside_steps_do_not_change_which_steps_exist(self):
+        md = PLAN2.split("## Criteria map")[0]
+        ok = self.lint(plan_body(), md=md, name="plan")
+        self.assertEqual((ok.returncode, ok.stderr), (0, ""))
+        self.fails(self.lint(plan_body(extra="<p>Paso 3</p>"), md=md, name="plan"), "Paso 3 is not a step in plan.md")
+        self.fails(self.lint(plan_body(svg=flow(steps=(1,))), md=md, name="plan"), "no data-step=2")
+
+    def test_2_the_1_1_plan_page_fails_lint_by_design(self):
+        md = self.write("plan.md", PLAN2)
+        self.assertEqual(run(RENDER, md).returncode, 0)
+        out = run(RENDER, "--lint", os.path.join(self.tmp.name, "plan.html"))
+        self.assertEqual(out.returncode, 1, out.stderr)
+        self.assertIn("no svg.flow", out.stderr)
+        self.assertIn("no .goal", out.stderr)
 
     def test_4_a_missing_sibling_md_is_one_line(self):
         path = self.write("criteria.html", page(MD, body()))
@@ -156,8 +226,10 @@ class Lint(unittest.TestCase):
         self.fails(self.lint(body(cards=CARDS.split("</article>")[0] + "</article>")), "no card for C2")
         self.fails(self.lint(body(svg='<svg viewBox="0 0 1 1"></svg>'), md=MD + SLICES), "no svg.slices")
 
-    def test_1_the_structure_is_checked_only_on_criteria_html(self):
-        self.assertEqual(self.lint('<p>x</p>' + SVG, md=PLAN, name="plan").returncode, 0)
+    def test_1_the_criteria_structure_is_not_asked_of_a_plan_page(self):
+        out = self.lint(plan_body(svg=flow()), md="# Plan: sample\n## Steps\n1. a\n2. b\n", name="plan")
+        self.assertEqual((out.returncode, out.stderr), (0, ""))
+        self.assertNotIn("svg.slices", out.stderr)
 
     def test_3_the_keep_block_and_its_three_parts_must_exist_with_text(self):
         self.fails(self.lint(body(keep="<p>nothing</p>")), "no .keep", "no data-keep=irreversible", "no data-keep=risks", "no data-keep=deviations")
@@ -177,6 +249,128 @@ class Lint(unittest.TestCase):
             self.assertIn(needle, visual)
         for needle in ("--lint", "once", "render_gate.py <criteria.md>", "visual summary failed", "never dropped"):
             self.assertIn(needle, grill)
+
+
+class MarkStale(unittest.TestCase):
+    """`render_gate.py --mark-stale <page.html>`: a visible banner on a stale page, the rest of the page untouched."""
+    MD = "# Plan: sample\n## Steps\n1. a\n"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.md = os.path.join(self.tmp.name, "plan.md")
+        self.html = os.path.join(self.tmp.name, "plan.html")
+
+    def make(self, head="", body_tag="<body>", crlf=False, stale=True):
+        with open(self.md, "w", encoding="utf-8", newline="") as f:
+            f.write(self.MD)
+        sha = hashlib.sha256(self.MD.encode()).hexdigest()
+        text = (f'<!doctype html>\n<html>\n<head>\n<meta name="source-sha256" content="{sha}">\n{head}</head>\n{body_tag}\n<main>x</main>\n</body>\n</html>\n')
+        if crlf:
+            text = text.replace("\n", "\r\n")
+        with open(self.html, "wb") as f:
+            f.write(text.encode())
+        if stale:
+            with open(self.md, "a", encoding="utf-8", newline="") as f:
+                f.write("2. corrected at the gate\n")
+        return text.encode()
+
+    def raw(self):
+        with open(self.html, "rb") as f:
+            return f.read()
+
+    def mark(self):
+        return run(RENDER, "--mark-stale", self.html)
+
+    def test_6_a_stale_page_gets_a_visible_inline_banner_after_body_and_check_still_exits_1(self):
+        before = self.make()
+        out = self.mark()
+        self.assertEqual(out.returncode, 0, out.stderr)
+        after = self.raw()
+        cut = before.index(b"<body>") + len(b"<body>")
+        self.assertEqual(after[:cut], before[:cut])
+        self.assertTrue(after[cut:].startswith(b'<div class="stale"'))
+        banner = after[cut:len(after) - len(before) + cut]
+        self.assertEqual(after, before[:cut] + banner + before[cut:])
+        low = banner.decode().lower()
+        self.assertIn("outdated, see .md", low)
+        self.assertIn("style=", low)
+        self.assertNotIn("url(", low)
+        self.assertNotIn("http", low)
+        self.assertEqual(run(RENDER, "--check", self.html).returncode, 1)
+
+    def test_6_marking_twice_changes_nothing_the_second_time(self):
+        self.make()
+        self.assertEqual(self.mark().returncode, 0)
+        once = self.raw()
+        again = self.mark()
+        self.assertEqual(again.returncode, 0, again.stderr)
+        self.assertEqual(self.raw(), once)
+        self.assertEqual(once.count(b'<div class="stale"'), 1)
+
+    def test_6_the_rest_of_a_crlf_page_stays_byte_identical(self):
+        before = self.make(crlf=True)
+        self.assertEqual(self.mark().returncode, 0)
+        after = self.raw()
+        self.assertEqual(after.count(b"\r\n"), before.count(b"\r\n"))
+        self.assertEqual(after.count(b"\n"), before.count(b"\n"))
+        cut = before.index(b"<body>") + len(b"<body>")
+        self.assertEqual(after[:cut] + after[len(after) - len(before) + cut:], before)
+
+    def test_6_body_with_attributes_or_in_capitals_is_found(self):
+        for tag in ('<body class="a" data-x="1>2">', "<BODY>", "<Body\n  id=x>"):
+            before = self.make(body_tag=tag)
+            self.assertEqual(self.mark().returncode, 0, tag)
+            after = self.raw()
+            cut = before.index(tag.encode()) + len(tag)
+            self.assertTrue(after[cut:].startswith(b'<div class="stale"'), tag)
+            self.assertEqual(after[:cut], before[:cut])
+
+    def test_6_a_body_in_a_comment_or_script_is_ignored_and_so_is_a_stale_div_in_a_comment(self):
+        head = '<!-- <body> <div class="stale"> -->\n<script>var s = "<body>";</script>\n<style>/* <body> */</style>\n'
+        before = self.make(head=head)
+        self.assertEqual(self.mark().returncode, 0)
+        after = self.raw()
+        cut = before.index(b"</head>\n<body>") + len(b"</head>\n<body>")
+        self.assertTrue(after[cut:].startswith(b'<div class="stale"'))
+        self.assertEqual(after[:cut], before[:cut])
+
+    def test_6_a_fresh_page_is_left_alone_and_exits_1(self):
+        before = self.make(stale=False)
+        out = self.mark()
+        self.assertEqual(out.returncode, 1)
+        self.assertEqual(len(out.stderr.strip().splitlines()), 1)
+        self.assertEqual(self.raw(), before)
+
+    def test_6_a_page_without_body_exits_2_in_one_line_and_is_not_written(self):
+        before = self.make(body_tag="<!-- <body> -->")
+        out = self.mark()
+        self.assertEqual(out.returncode, 2)
+        self.assertEqual(len(out.stderr.strip().splitlines()), 1)
+        self.assertNotIn("Traceback", out.stderr)
+        self.assertEqual(self.raw(), before)
+
+    def test_6_bad_use_exits_2(self):
+        self.make()
+        self.assertEqual(run(RENDER, "--mark-stale").returncode, 2)
+        self.assertEqual(run(RENDER, "--mark-stale", self.html, self.html).returncode, 2)
+        other = os.path.join(self.tmp.name, "notes.html")
+        with open(other, "w") as f:
+            f.write("<body>")
+        self.assertEqual(run(RENDER, "--mark-stale", other).returncode, 2)
+        self.assertEqual(run(RENDER, "--mark-stale", self.md).returncode, 2)
+        self.assertEqual(run(RENDER, "--mark-stale", os.path.join(self.tmp.name, "criteria.html")).returncode, 2)
+
+    def test_6_it_works_on_a_criteria_page_too(self):
+        md = os.path.join(self.tmp.name, "criteria.md")
+        with open(md, "w") as f:
+            f.write(CRITERIA)
+        self.assertEqual(run(RENDER, md).returncode, 0)
+        with open(md, "a") as f:
+            f.write("2. Given d, when e, then f.\n")
+        out = run(RENDER, "--mark-stale", os.path.join(self.tmp.name, "criteria.html"))
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(run(RENDER, "--check", md).returncode, 1)
 
 
 class Check(unittest.TestCase):
@@ -286,6 +480,26 @@ class Prefs(unittest.TestCase):
                 self.assertEqual(len(odd.stderr.strip().splitlines()), 1)
 
 
+class StepsOf(unittest.TestCase):
+    def steps(self, md):
+        import render_gate
+        return render_gate.steps_of(md)
+
+    def test_a_heading_that_contains_step_or_paso_counts(self):
+        self.assertEqual(self.steps("## Implementation steps\n1. a\n2. b\n"), [1, 2])
+        self.assertEqual(self.steps("## Los PASOS\n1. a\n"), [1])
+
+    def test_a_heading_without_step_or_paso_does_not_count(self):
+        self.assertEqual(self.steps("## Criteria\n1. a\n"), [])
+
+    def test_a_deeper_subheading_does_not_end_the_steps_section(self):
+        self.assertEqual(self.steps("## Steps\n1. a\n### Sub\n2. b\n## Other\n3. c\n"), [1, 2])
+
+    def test_a_same_or_higher_heading_ends_the_steps_section(self):
+        self.assertEqual(self.steps("## Steps\n1. a\n## Risks\n2. b\n"), [1])
+        self.assertEqual(self.steps("### Steps\n1. a\n## Risks\n2. b\n"), [1])
+
+
 class Wording(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -324,6 +538,38 @@ class Wording(unittest.TestCase):
         for name, text in (("grillme closing", self.grill), ("0a", self.zero_a), ("gate 1", self.gate1)):
             self.assertRegex(text, r"gate_view[=` ]+md`?.{0,80}no `\.html` is written", name)
             self.assertIn("unchanged", text, name)
+
+    def test_6_0a_and_gate_1_reuse_a_fresh_page_mark_a_stale_one_and_never_re_render_it(self):
+        for name, text in (("0a", self.zero_a), ("gate 1", self.gate1)):
+            for needle in ("--check", "reuse", "--mark-stale", "never re-render", ".shown.md", "diff", "1:1"):
+                self.assertIn(needle, text, f"{name} lacks {needle}")
+            self.assertNotRegex(text, r"--check <(criteria|plan)\.md> \|\|", f"{name} still re-renders when --check fails")
+
+    def test_0a_and_gate_1_name_the_steps_heading_the_lint_reads(self):
+        ticket = flat(section(read("core", "skills", "ticket-flow", "SKILL.md"), "## 1 · Plan"))
+        self.assertRegex(ticket, r"numbered lines under a `## Steps` heading")
+
+    def test_0a_and_gate_1_say_what_to_show_when_the_shown_copy_is_missing(self):
+        for name, text in (("0a", self.zero_a), ("gate 1", self.gate1)):
+            self.assertRegex(text, r"`<page>\.shown\.md` (does not exist|is missing)", name)
+            self.assertIn("baseline is missing", text, name)
+            self.assertIn("git diff", text, name)
+
+    def test_6_the_gate_message_shows_the_md_diff_against_the_saved_copy(self):
+        for name, text in (("0a", self.zero_a), ("gate 1", self.gate1)):
+            self.assertRegex(text, r"diff <page>\.shown\.md <page>\.md|diff <(criteria|plan)\.shown\.md> <(criteria|plan)\.md>|diff [^ ]*\.shown\.md", name)
+            self.assertRegex(text, r"(copy|save).{0,80}\.shown\.md|\.shown\.md.{0,80}(copy|save)", name)
+
+    def test_2_gate_1_writes_plan_html_lints_it_only_when_just_written_and_falls_back_after_two_failures(self):
+        for needle in ("plan.html", "--lint", "just written", "visual-guides", "two", "render_gate.py <plan.md>", "visual summary failed"):
+            self.assertIn(needle, self.gate1)
+        self.assertRegex(self.gate1, r"never (on|for) a (reused|fresh)")
+        self.assertIn("at most 3 lines", self.gate1)
+
+    def test_2_the_plan_page_has_the_flow_map_and_only_the_matrix_and_before_after_the_plan_has(self):
+        for needle in ("Paso N", "touched", "matrix", "before/after"):
+            self.assertIn(needle, self.gate1)
+        self.assertRegex(self.gate1, r"only when the plan has")
 
     def test_5_the_short_route_uses_criteria_html_only(self):
         self.assertIn("criteria.html", self.zero_a)
